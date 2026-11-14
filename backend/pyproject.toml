@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "spherex-sky-api"
+version = "0.1.0"
+description = "SPHEREx observation discovery, FITS cutouts, and registered quick-look frames"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+  "astropy>=7.1,<9",
+  "fastapi>=0.115,<1",
+  "filelock>=3.16,<4",
+  "httpx>=0.28,<1",
+  "numpy>=2.1,<3",
+  "pillow>=11,<13",
+  "scipy>=1.14,<2",
+  "uvicorn>=0.34,<1",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/spherex_api"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

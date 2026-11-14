@@ -1,0 +1,78 @@
+import type { FormEvent } from 'react'
+import { Search, ChevronDown, Layers3, SquareDashed, SlidersHorizontal, Crosshair, X } from 'lucide-react'
+import type { BandSelection, SearchTarget } from '../types/astronomy'
+
+function sexagesimal(value:string, ra:boolean): number | null {
+  const clean=value.trim().replace(/[hHdD°mM′'sS″"]/g,':').replace(/\s+/g,':').replace(/:+$/,'')
+  if(!clean) return null
+  if(/^[-+]?\d+(?:\.\d+)?$/.test(clean)){
+    const deg=Number(clean)
+    return Number.isFinite(deg) && (ra?(deg>=0&&deg<360):(deg>=-90&&deg<=90))?deg:null
+  }
+  if(!clean.includes(':'))return null
+  const parts=clean.split(':').filter(Boolean)
+  if(parts.length<2||parts.length>3||parts.some(p=>!/^\d+(?:\.\d+)?$/.test(p.replace(/^[-+]/,''))))return null
+  const sign=parts[0].startsWith('-')?-1:1
+  const nums=parts.map(v=>Math.abs(Number(v)))
+  if(nums.some(n=>!Number.isFinite(n))||nums[1]>=60||(nums[2]??0)>=60)return null
+  const result=sign*(nums[0]+nums[1]/60+(nums[2]??0)/3600)*(ra?15:1)
+  return (ra?(result>=0&&result<360):(result>=-90&&result<=90))?result:null
+}
+export function parseSkyCoordinates(ra:string,dec:string,fov:number):SearchTarget|null {
+  const raDeg=sexagesimal(ra,true),decDeg=sexagesimal(dec,false)
+  if(raDeg===null||decDeg===null)return null
+  return {raDeg,decDeg,fovArcmin:fov}
+}
+export default function Sidebar({ra,dec,onRa,onDec,fov,onFov,band,onBand,gaia,onGaia,hasFrames,
+  brightness,onBrightness,contrast,onContrast,inverted,onInvert,loading,onSearch,onClose,error}: {
+    ra:string;dec:string;onRa:(v:string)=>void;onDec:(v:string)=>void;fov:number;onFov:(v:number)=>void;
+    band:BandSelection;onBand:(b:BandSelection)=>void;gaia:boolean;onGaia:(b:boolean)=>void;hasFrames:boolean;
+    brightness:number;onBrightness:(n:number)=>void;contrast:number;onContrast:(n:number)=>void;
+    inverted:boolean;onInvert:(b:boolean)=>void;loading:boolean;onSearch:(target:SearchTarget)=>void;onClose:()=>void;error?:string
+  }) {
+  const parsed=parseSkyCoordinates(ra,dec,fov)
+  function submit(e:FormEvent) {e.preventDefault();if(parsed)onSearch(parsed)}
+  return <aside className="sidebar" aria-label="Sky search and viewing settings">
+    <div className="sidebar-heading"><span>Controls</span><button className="sidebar-dismiss" onClick={onClose} type="button" aria-label="Close controls"><X size={16}/></button></div>
+    <form className="search-block" onSubmit={submit}>
+      <div className="control-heading"><Crosshair size={16}/>Search sky</div>
+      <label className="field-label" htmlFor="ra-input">Right ascension (RA)</label>
+      <input id="ra-input" className="control-input" value={ra} onChange={e=>onRa(e.target.value)} placeholder="hh:mm:ss or degrees" autoComplete="off"/>
+      <label className="field-label" htmlFor="dec-input">Declination (Dec)</label>
+      <input id="dec-input" className="control-input" value={dec} onChange={e=>onDec(e.target.value)} placeholder="±dd:mm:ss or degrees" autoComplete="off"/>
+      <button type="submit" className="primary-button" disabled={!parsed||loading}><Search size={16}/>{loading?'Loading…':'Search'}</button>
+      {ra&&dec&&!parsed&&<p className="inline-warning" role="alert">Enter valid sky coordinates.</p>}
+      {error&&<p className="inline-warning" role="alert">{error}</p>}
+    </form>
+    <section className="control-section">
+      <div className="control-heading"><SquareDashed size={16}/>Field of view</div>
+      <div className="select-shell"><select aria-label="Field of view" value={fov} onChange={e=>onFov(Number(e.target.value))}>
+        {[5,10,15,30,60].map(v=><option key={v} value={v}>{v} arcmin</option>)}
+      </select><ChevronDown size={15}/></div>
+    </section>
+    <section className="control-section">
+      <div className="control-heading"><Layers3 size={16}/>SPHEREx wavelength</div>
+      <div className="band-radio">
+        {(['auto','detector','channel'] as const).map(mode=><label key={mode} className={`band-choice ${band.mode===mode?'band-choice-active':''}`}><input type="radio" name="bandmode" checked={band.mode===mode} onChange={()=>onBand(mode==='auto'?{mode:'auto'}:{mode,index:1})}/>{mode==='auto'?'Auto':mode==='detector'?'Detector (1–6)':'Channel (1–102)'}</label>)}
+      </div>
+      {band.mode!=='auto'&&<div className="band-number"><label htmlFor="band-index">{band.mode==='detector'?'Detector':'Channel'}</label><input id="band-index" type="number" min={1} max={band.mode==='detector'?6:102} value={band.index} onChange={e=>{
+        const value=Number(e.target.value);if(Number.isInteger(value)&&value>=1&&value<=(band.mode==='detector'?6:102))onBand({...band,index:value})
+      }}/></div>}
+      <p className="control-hint">Available frames depend on the selected filter and archive coverage.</p>
+    </section>
+    <section className="control-section">
+      <div className="control-heading"><Layers3 size={16}/>Catalog overlays</div>
+      <label className={`toggle-row ${!hasFrames?'toggle-row-disabled':''}`}><span>Gaia DR3</span><input type="checkbox" role="switch" checked={gaia} disabled={!hasFrames} onChange={e=>onGaia(e.target.checked)}/><span className="toggle-track" aria-hidden="true"/></label>
+      <p className="control-hint">Catalog sources are positioned by the backend using the image coordinates.</p>
+    </section>
+    <section className="control-section">
+      <div className="control-heading"><SlidersHorizontal size={16}/>Image display</div>
+      <label className="range-title" htmlFor="contrast-range">Contrast <span>{(contrast/100).toFixed(1)}×</span></label>
+      <input id="contrast-range" type="range" min={50} max={200} step={5} value={contrast} onChange={e=>onContrast(Number(e.target.value))}/>
+      <label className="range-title" htmlFor="brightness-range">Brightness <span>{(brightness/100).toFixed(1)}×</span></label>
+      <input id="brightness-range" type="range" min={50} max={200} step={5} value={brightness} onChange={e=>onBrightness(Number(e.target.value))}/>
+      <label className="toggle-row"><span>Invert colors</span><input type="checkbox" role="switch" checked={inverted} onChange={e=>onInvert(e.target.checked)}/><span className="toggle-track" aria-hidden="true"/></label>
+      <p className="control-hint">These adjustments change the display, not the underlying measurements.</p>
+    </section>
+  </aside>
+}
