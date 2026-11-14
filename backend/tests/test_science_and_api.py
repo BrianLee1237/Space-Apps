@@ -45,13 +45,13 @@ def sia_bytes(status="OK", rows=None):
     return output.getvalue()
 
 
-def mef_bytes(query, rotation_deg=0):
+def mef_bytes(query, rotation_deg=0, detector=6, center_pixel=(40, 38)):
     pixels = 64
     wcs = output_wcs(query, pixels)
     angle = np.deg2rad(rotation_deg)
     wcs.wcs.pc = [[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]]
     header = wcs.to_header()
-    header["DETECTOR"] = 6
+    header["DETECTOR"] = detector
     header["OBSID"] = "obs-a"
     header["BUNIT"] = "MJy/sr"
     header["CTYPE1W"] = "WAVE"
@@ -62,7 +62,7 @@ def mef_bytes(query, rotation_deg=0):
         header[f"CRVAL{axis}W"] = value
         header[f"CDELT{axis}W"] = 0.001
     yy, xx = np.indices((pixels, pixels))
-    sky = output_wcs(query, pixels).pixel_to_world(40, 38)
+    sky = output_wcs(query, pixels).pixel_to_world(*center_pixel)
     sx, sy = wcs.world_to_pixel(sky)
     image = 20 * np.exp(-((xx - sx) ** 2 + (yy - sy) ** 2) / 5)
     hdus = fits.HDUList(
@@ -174,6 +174,53 @@ def test_api_discovery_download_cache_and_png(tmp_path):
     assert client.get("/v1/searches/invalid").status_code == 404
 
 
+def test_difference_detects_a_moving_source(tmp_path):
+    """Two epochs with a source at different pixels should show a red/blue dipole."""
+    query = SearchRequest(ra=133.7, dec=-7.2, fov_arcmin=10)
+    second_url = DATA_URL.replace("example", "example2")
+    rows = [
+        (DATA_URL, "obs-a", "SPHEREx-D6", "spherex_dr1", 60900.0),
+        (second_url, "obs-b", "SPHEREx-D6", "spherex_dr1", 60901.0),
+    ]
+
+    def upstream(request):
+        if request.url.path == "/SIA":
+            return httpx.Response(200, content=sia_bytes(rows=rows))
+        if str(request.url).startswith(second_url):
+            return httpx.Response(200, content=mef_bytes(query, center_pixel=(46, 38)))
+        return httpx.Response(200, content=mef_bytes(query, center_pixel=(40, 38)))
+
+    settings = Settings(data_dir=tmp_path)
+    service = SkyService(settings, ArchiveClient(settings, httpx.MockTransport(upstream)))
+    client = TestClient(create_app(settings, service=service))
+
+    response = client.get(
+        "/api/observations", params={"ra": 133.7, "dec": -7.2, "fov": 10, "mode": "auto"}
+    )
+    assert response.status_code == 200
+    observations = response.json()["observations"]
+    assert len(observations) == 2
+    from_id, to_id = observations[0]["id"], observations[1]["id"]
+
+    diff = client.get("/api/difference", params={"fromId": from_id, "toId": to_id, "pixels": 64})
+    assert diff.status_code == 200
+    body = diff.json()
+    assert body["imageUrl"].startswith("/api/difference.png")
+    assert any("not" in w.lower() for w in body["warnings"])
+
+    png = client.get(body["imageUrl"])
+    assert png.status_code == 200
+    image = np.array(Image.open(io.BytesIO(png.content)))
+    assert image.shape == (64, 64, 4)
+    # The source moved from x=40 to x=46: brighter-now (red) and dimmer-now (blue)
+    # separate spatially into a dipole rather than cancelling out.
+    assert image[..., 0].max() > 100  # red: brighter in the later frame
+    assert image[..., 2].max() > 100  # blue: brighter in the earlier frame
+
+    bad = client.get("/api/difference", params={"fromId": from_id, "toId": "bad"})
+    assert bad.status_code == 404
+
+
 def test_failed_download_is_not_committed(tmp_path):
     settings = Settings(data_dir=tmp_path)
 
@@ -228,7 +275,7 @@ def test_unchanged_frontend_contract(tmp_path):
     assert response.status_code == 200
     assert Image.open(io.BytesIO(response.content)).size == (512, 512)
     assert client.get("/api/images/invalid.png").status_code == 404
-    for path in ["spectrum", "difference", "candidates", "overlays"]:
+    for path in ["spectrum", "candidates", "overlays"]:
         assert client.get("/api/" + path).status_code == 501
     for params in [
         {"ra": 1, "dec": 0, "mode": "detector", "index": 7},

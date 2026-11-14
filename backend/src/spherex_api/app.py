@@ -88,7 +88,7 @@ def create_app(settings: Settings | None = None, service=None):
             "max_download_bytes": settings.max_response_bytes,
             "cache_budget_bytes": settings.cache_budget_bytes,
             "image_products": ["native_multi_extension_fits", "registered_quicklook_png"],
-            "science_difference_imaging": False,
+            "science_difference_imaging": True,
             "calibrated_spectrum_extraction": False,
         }
 

@@ -208,5 +208,45 @@ def preview_png(
     }
 
 
+def difference_image(path_from, path_to, request, pixels, reject_bits=0, subtract_zodi=False):
+    """Resample both cutouts onto one shared grid, then subtract (to minus from).
+
+    Using the same ``request``/``pixels`` for both calls to ``registered_image``
+    guarantees pixel-for-pixel alignment regardless of each cutout's own
+    detector rotation. A pixel is valid only where both epochs are valid.
+    """
+    image_from = registered_image(path_from, request, pixels, reject_bits, subtract_zodi)
+    image_to = registered_image(path_to, request, pixels, reject_bits, subtract_zodi)
+    diff = image_to - image_from
+    valid = np.isfinite(diff)
+    return diff, valid
+
+
+def difference_png(path_from, path_to, request, pixels=512, reject_bits=0, subtract_zodi=False):
+    """Zero-centered, diverging quick-look PNG: red brightened, blue dimmed."""
+    diff, valid = difference_image(path_from, path_to, request, pixels, reject_bits, subtract_zodi)
+    if not valid.any():
+        raise ArchiveError("No pixels are valid in both frames after masking")
+    magnitude = float(np.percentile(np.abs(diff[valid]), 99.5))
+    if magnitude <= 0:
+        magnitude = 1.0
+    scaled = np.clip(np.nan_to_num(diff, nan=0.0) / magnitude, -1, 1)
+    # asinh keeps faint residuals visible without saturating the dipole core.
+    stretched = np.sign(scaled) * np.arcsinh(10 * np.abs(scaled)) / np.arcsinh(10)
+    red = np.round(np.clip(stretched, 0, 1) * 255).astype(np.uint8)
+    blue = np.round(np.clip(-stretched, 0, 1) * 255).astype(np.uint8)
+    green = np.zeros_like(red)
+    alpha = (valid.astype(np.uint8)) * 255
+    rgba = np.stack([red, green, blue, alpha], axis=-1)
+    buffer = io.BytesIO()
+    Image.fromarray(np.flipud(rgba)).save(buffer, format="PNG")
+    return buffer.getvalue(), {
+        "X-Difference-Vmax": str(magnitude),
+        "X-Difference-Scale": "asinh-10-diverging-red-positive-blue-negative",
+        "X-Preview-Valid-Fraction": str(float(valid.mean())),
+        "X-Preview-Orientation": "north-up-east-left",
+    }
+
+
 def full_sha256(payload):
     return hashlib.sha256(payload).hexdigest()

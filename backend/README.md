@@ -187,6 +187,10 @@ sequence. The adapter includes actual cached quality metadata and prepares the
 first frame before returning a sequence.
 
 After `npm run build` in `frontend`, restarting FastAPI mounts `frontend/dist` at
-the root URL. Existing `/v1` APIs and `/docs` remain available. The frontend's
-existing unavailable-state handling covers the HTTP 501 responses for pending
-channel binning, spectral extraction, difference imaging, discovery, and overlays.
+the root URL. Existing `/v1` APIs and `/docs` remain available. `/api/difference`
+and `/api/difference.png` implement the Compare tab: both requested observations
+are resampled with bilinear interpolation onto one shared tangent-plane grid and
+subtracted (to minus from), rendered as a zero-centered red/blue PNG. The
+frontend's existing unavailable-state handling covers the HTTP 501 responses for
+the remaining pending channel binning, spectral extraction, discovery, and
+overlays.

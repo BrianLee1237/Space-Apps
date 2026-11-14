@@ -41,11 +41,15 @@ the frontend's origin.
   components. Flags are included when the actual FITS metadata are cached.
 - The local discovery notebook retains the frontend's existing browser storage.
 
-Channel-binned sequences, candidate detection, spectral extraction, difference
-imaging, and Gaia overlays remain pending scientific implementation. Their routes
-return HTTP 501, which the existing frontend displays as unavailable. Wavelength
-can vary between exposures within one detector. Use the wavelength metadata from
-the `/v1` API when assessing motion or variability.
+Difference imaging is implemented: `/api/difference` and `/v1`-backed
+`/api/difference.png` resample two observations onto one shared ICRS grid and
+render a zero-centered, red/blue diverging quick-look PNG (to minus from). It is
+not flux-calibrated and applies no PSF matching or background fitting; the
+response's `warnings` state this. Channel-binned sequences, candidate detection,
+spectral extraction, and Gaia overlays remain pending scientific implementation.
+Their routes return HTTP 501, which the existing frontend displays as
+unavailable. Wavelength can vary between exposures within one detector. Use the
+wavelength metadata from the `/v1` API when assessing motion or variability.
 
 Search snapshots and FITS files are stored under `backend/data` and are ignored by
 Git. The Python environment and generated frontend build are also ignored. The

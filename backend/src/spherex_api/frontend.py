@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
-from .imaging import preview_png
+from .imaging import difference_png, preview_png
 from .models import SearchRequest
 from .targets import TARGETS
 
@@ -117,8 +117,66 @@ def frontend_router(sky):
         png, headers = preview_png(path, query, pixels, vmin, vmax)
         return Response(png, media_type="image/png", headers=headers)
 
-    @router.get("/spectrum")
     @router.get("/difference")
+    def difference(
+        fromId: Annotated[str, Query(min_length=1)],
+        toId: Annotated[str, Query(min_length=1)],
+        pixels: Annotated[int, Query(ge=32, le=1024)] = 512,
+        reject_bits: Annotated[int, Query(ge=0, le=2**32 - 1)] = 0,
+        subtract_zodi: bool = False,
+    ):
+        from_search, from_frame = observation_parts(fromId)
+        to_search, to_frame = observation_parts(toId)
+        _, from_metadata = sky.frame(from_search, from_frame)
+        _, to_metadata = sky.frame(to_search, to_frame)
+        warnings = [
+            "Not a flux-calibrated difference image: no PSF matching or background fitting.",
+            "Residuals near bright, saturated, or flagged pixels are not scientifically validated.",
+        ]
+        if from_metadata["detector"] != to_metadata["detector"]:
+            warnings.append(
+                "The two frames use different detectors with different bandpasses; "
+                "the subtraction mixes wavelength coverage."
+            )
+        image_params = urlencode(
+            {
+                "fromId": fromId,
+                "toId": toId,
+                "pixels": pixels,
+                "reject_bits": reject_bits,
+                "subtract_zodi": subtract_zodi,
+            }
+        )
+        return {
+            "imageUrl": f"/api/difference.png?{image_params}",
+            "method": (
+                "Both cutouts resampled with bilinear interpolation onto one shared "
+                "ICRS tangent-plane grid (the earlier frame's requested field center "
+                "and pixel scale), then to-minus-from subtraction with a zero-centered "
+                "asinh stretch: red where the later frame is brighter, blue where it is dimmer."
+            ),
+            "warnings": warnings,
+        }
+
+    @router.get("/difference.png")
+    def difference_image_route(
+        fromId: Annotated[str, Query(min_length=1)],
+        toId: Annotated[str, Query(min_length=1)],
+        pixels: Annotated[int, Query(ge=32, le=1024)] = 512,
+        reject_bits: Annotated[int, Query(ge=0, le=2**32 - 1)] = 0,
+        subtract_zodi: bool = False,
+    ):
+        from_search, from_frame = observation_parts(fromId)
+        to_search, to_frame = observation_parts(toId)
+        path_from, _ = sky.frame(from_search, from_frame)
+        path_to, _ = sky.frame(to_search, to_frame)
+        request = SearchRequest.model_validate(sky.manifest(from_search)["query"])
+        png, headers = difference_png(
+            path_from, path_to, request, pixels, reject_bits, subtract_zodi
+        )
+        return Response(png, media_type="image/png", headers=headers)
+
+    @router.get("/spectrum")
     @router.get("/candidates")
     @router.get("/overlays")
     def pending_science_product():
