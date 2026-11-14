@@ -58,11 +58,23 @@ onto the same output grid the preview PNG uses. No parallax or radial-velocity
 correction is applied; the response's `warnings` say so, including when a
 source had no proper-motion solution at all.
 
-Channel-binned sequences, candidate detection, and spectral extraction remain
-pending scientific implementation. Their routes return HTTP 501, which the
-existing frontend displays as unavailable. Wavelength can vary between
-exposures within one detector. Use the wavelength metadata from the `/v1` API
-when assessing motion or variability.
+Candidate detection is implemented: `/api/candidates?ra=&dec=&fov=&ids=...`
+takes the earliest and latest of the given observations by actual observation
+time, differences them, subtracts a local median background (two independent
+exposures rarely share the same large-scale zodiacal/flat-fielding background),
+and flags blobs far above the noise as candidates. A brightened blob paired
+with a nearby dimmed blob is reported as a `moving-source`; an unpaired one is
+a `brightness-change`. This is a best-effort statistical screen, not a
+validated pipeline: it has no PSF fitting or catalog cross-match, pixels near
+a bright/saturated star are excluded as likely detector overflow rather than
+real flux, and the response's `warnings` say so. At most the 8 most
+significant candidates are returned per request.
+
+Channel-binned sequences and spectral extraction remain pending scientific
+implementation. Their routes return HTTP 501, which the existing frontend
+displays as unavailable. Wavelength can vary between exposures within one
+detector. Use the wavelength metadata from the `/v1` API when assessing
+motion or variability.
 
 Search snapshots and FITS files are stored under `backend/data` and are ignored by
 Git. The Python environment and generated frontend build are also ignored. The

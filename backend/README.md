@@ -194,6 +194,18 @@ subtracted (to minus from), rendered as a zero-centered red/blue PNG. `/api/over
 implements the Gaia DR3 toggle: a cone search against ESA's public Gaia Archive
 TAP+ `sync` endpoint (`gea.esac.esa.int`, no key needed), with each source's
 position linearly propagated by its own proper motion to the observation's
-epoch and projected onto the same output grid `/api/images` renders. The
-frontend's existing unavailable-state handling covers the HTTP 501 responses
-for the remaining pending channel binning, spectral extraction, and discovery.
+epoch and projected onto the same output grid `/api/images` renders. `/api/candidates`
+implements the Discover tab (`candidates.py`): differences the earliest and
+latest of the given observations, subtracts a local median background to
+suppress field-wide zodiacal/flat-fielding mismatches, erodes a few pixels in
+from each frame's resampled edge (differently-rotated detectors don't share a
+valid-pixel boundary), and flags blobs that clear a 10-sigma threshold at
+roughly a PSF-sized footprint. Paired brightened/dimmed blobs become
+`moving-source` candidates; unpaired ones become `brightness-change`. Pixels
+carrying an implausibly large raw difference (detector overflow near a
+bright/saturated star, not real linear flux) are excluded rather than
+reported. This is a best-effort statistical screen, calibrated empirically
+against this project's own guided targets, not a validated discovery
+pipeline. The frontend's existing unavailable-state handling covers the HTTP
+501 responses for the remaining pending channel binning and spectral
+extraction.

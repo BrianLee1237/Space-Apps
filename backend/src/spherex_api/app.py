@@ -95,6 +95,7 @@ def create_app(settings: Settings | None = None, service=None, gaia=None):
             "image_products": ["native_multi_extension_fits", "registered_quicklook_png"],
             "science_difference_imaging": True,
             "gaia_dr3_overlay": True,
+            "candidate_detection": True,
             "calibrated_spectrum_extraction": False,
         }
 

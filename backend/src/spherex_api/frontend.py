@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
 from .archive import ArchiveError
+from .candidates import detect_candidates
 from .gaia import gaia_overlay
 from .imaging import difference_png, preview_png
 from .models import SearchRequest
@@ -19,6 +20,17 @@ def observation_parts(identifier):
     if not re.fullmatch(r"[a-f0-9]{24}\.[a-f0-9]{24}", identifier):
         raise KeyError(identifier)
     return identifier.split(".")
+
+
+def manifest_frame_entry(sky, identifier):
+    """Resolve an observation id to its manifest-listed frame entry (mjd_start,
+    observed_at_utc, ...) without downloading that frame's FITS cutout."""
+    search_id, frame_id = observation_parts(identifier)
+    manifest = sky.manifest(search_id)
+    entry = next((f for f in manifest["frames"] if f["frame_id"] == frame_id), None)
+    if entry is None:
+        raise KeyError(identifier)
+    return search_id, frame_id, entry
 
 
 def resolve_difference_pair(sky, from_id, to_id):
@@ -236,8 +248,50 @@ def frontend_router(sky, gaia):
             raise HTTPException(502, str(exc)) from exc
         return {"sources": sources, "catalog": catalog, "warnings": warnings}
 
-    @router.get("/spectrum")
     @router.get("/candidates")
+    def candidates(
+        ra: Annotated[float, Query(ge=0, lt=360, allow_inf_nan=False)],
+        dec: Annotated[float, Query(ge=-90, le=90, allow_inf_nan=False)],
+        fov: Annotated[float, Query(ge=0.5, le=60, allow_inf_nan=False)],
+        ids: Annotated[str, Query(min_length=1)],
+    ):
+        identifiers = [value for value in ids.split(",") if value]
+        if len(identifiers) < 2:
+            raise HTTPException(422, "Provide at least two comma-separated observation ids.")
+        entries = [manifest_frame_entry(sky, identifier) for identifier in identifiers]
+        entries.sort(key=lambda entry: entry[2]["mjd_start"])
+        earlier_search, earlier_frame, earlier_entry = entries[0]
+        later_search, later_frame, later_entry = entries[-1]
+        path_earlier, _ = sky.frame(earlier_search, earlier_frame)
+        path_later, _ = sky.frame(later_search, later_frame)
+        request = SearchRequest.model_validate(sky.manifest(earlier_search)["query"])
+        found, warnings = detect_candidates(
+            path_earlier,
+            path_later,
+            request,
+            earlier_entry["observed_at_utc"],
+            later_entry["observed_at_utc"],
+        )
+        if (
+            abs(request.ra - ra) > 1e-6
+            or abs(request.dec - dec) > 1e-6
+            or abs(request.fov_arcmin - fov) > 1e-6
+        ):
+            warnings.append(
+                "The requested ra/dec/fov differ from the earliest observation's own "
+                "search; candidates are positioned on that observation's grid."
+            )
+        return {
+            "candidates": found,
+            "method": found[0]["method"] if found else "blob detection on a difference image",
+            "notes": (
+                f"Compared {len(identifiers)} requested observations by using the earliest "
+                "and latest by observation time, for maximum baseline."
+            ),
+            "warnings": warnings,
+        }
+
+    @router.get("/spectrum")
     def pending_science_product():
         raise HTTPException(
             501, "This scientific product is pending implementation and validation."

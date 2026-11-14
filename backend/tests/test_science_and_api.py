@@ -297,6 +297,51 @@ def test_difference_warns_on_mismatched_search_grids(tmp_path):
     assert "x-difference-warning" in {k.lower() for k in png.headers.keys()}
 
 
+def test_candidates_detects_a_moving_source(tmp_path):
+    """A source that shifts between two epochs should come back as a mover."""
+    query = SearchRequest(ra=133.7, dec=-7.2, fov_arcmin=10)
+    second_url = DATA_URL.replace("example", "example2")
+    rows = [
+        (DATA_URL, "obs-a", "SPHEREx-D6", "spherex_dr1", 60900.0),
+        (second_url, "obs-b", "SPHEREx-D6", "spherex_dr1", 60910.0),
+    ]
+
+    def upstream(request):
+        if request.url.path == "/SIA":
+            return httpx.Response(200, content=sia_bytes(rows=rows))
+        if str(request.url).startswith(second_url):
+            return httpx.Response(200, content=mef_bytes(query, center_pixel=(46, 38)))
+        return httpx.Response(200, content=mef_bytes(query, center_pixel=(40, 38)))
+
+    settings = Settings(data_dir=tmp_path)
+    service = SkyService(settings, ArchiveClient(settings, httpx.MockTransport(upstream)))
+    client = TestClient(create_app(settings, service=service))
+
+    observations = client.get(
+        "/api/observations", params={"ra": 133.7, "dec": -7.2, "fov": 10, "mode": "auto"}
+    ).json()["observations"]
+    assert len(observations) == 2
+    ids = ",".join(o["id"] for o in observations)
+
+    response = client.get(
+        "/api/candidates", params={"ra": 133.7, "dec": -7.2, "fov": 10, "ids": ids}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    movers = [c for c in body["candidates"] if c["classification"] == "moving-source"]
+    assert len(movers) >= 1
+    mover = movers[0]
+    assert mover["displacementArcsec"] > 0
+    assert 0 <= mover["xFraction"] <= 1 and 0 <= mover["yFraction"] <= 1
+    assert any("unverified" in w.lower() for w in body["warnings"])
+
+    too_few = client.get(
+        "/api/candidates",
+        params={"ra": 133.7, "dec": -7.2, "fov": 10, "ids": observations[0]["id"]},
+    )
+    assert too_few.status_code == 422
+
+
 def test_gaia_overlay_propagates_motion_and_filters_out_of_field(tmp_path):
     """Gaia sources are moved to the observation epoch and clipped to the frame."""
     query = SearchRequest(ra=133.7, dec=-7.2, fov_arcmin=10)
@@ -416,7 +461,7 @@ def test_unchanged_frontend_contract(tmp_path):
     assert response.status_code == 200
     assert Image.open(io.BytesIO(response.content)).size == (512, 512)
     assert client.get("/api/images/invalid.png").status_code == 404
-    for path in ["spectrum", "candidates"]:
+    for path in ["spectrum"]:
         assert client.get("/api/" + path).status_code == 501
     for params in [
         {"ra": 1, "dec": 0, "mode": "detector", "index": 7},
