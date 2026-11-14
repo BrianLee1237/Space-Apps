@@ -47,6 +47,10 @@ export default function Sidebar({ra,dec,onRa,onDec,fov,onFov,band,onBand,gaia,on
     <section className="control-section">
       <div className="control-heading"><SquareDashed size={16}/>Field of view</div>
       <div className="select-shell"><select aria-label="Field of view" value={fov} onChange={e=>onFov(Number(e.target.value))}>
+        {/* A shared/embedded URL can carry any value in the backend's supported
+            0.5-60 arcmin range; show it even when it isn't one of the presets,
+            instead of silently defaulting the dropdown's displayed value to 5. */}
+        {!([5,10,15,30,60] as number[]).includes(fov)&&<option value={fov}>{fov} arcmin (from URL)</option>}
         {[5,10,15,30,60].map(v=><option key={v} value={v}>{v} arcmin</option>)}
       </select><ChevronDown size={15}/></div>
     </section>
