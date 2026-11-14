@@ -45,11 +45,24 @@ Difference imaging is implemented: `/api/difference` and `/v1`-backed
 `/api/difference.png` resample two observations onto one shared ICRS grid and
 render a zero-centered, red/blue diverging quick-look PNG (to minus from). It is
 not flux-calibrated and applies no PSF matching or background fitting; the
-response's `warnings` state this. Channel-binned sequences, candidate detection,
-spectral extraction, and Gaia overlays remain pending scientific implementation.
-Their routes return HTTP 501, which the existing frontend displays as
-unavailable. Wavelength can vary between exposures within one detector. Use the
-wavelength metadata from the `/v1` API when assessing motion or variability.
+response's `warnings` state this. The two frames are reordered into true
+chronological order by their own observation time regardless of which one the
+caller labeled `fromId`/`toId`, with a warning if that required a swap or if
+the two frames came from searches with a different field center or FOV.
+
+The Gaia DR3 catalog overlay is implemented: `/api/overlays?observationId=...`
+queries ESA's public Gaia Archive TAP+ service for sources within the frame's
+field, applies a linear proper-motion approximation from each source's own
+Gaia DR3 reference epoch to the observation's own epoch, and projects them
+onto the same output grid the preview PNG uses. No parallax or radial-velocity
+correction is applied; the response's `warnings` say so, including when a
+source had no proper-motion solution at all.
+
+Channel-binned sequences, candidate detection, and spectral extraction remain
+pending scientific implementation. Their routes return HTTP 501, which the
+existing frontend displays as unavailable. Wavelength can vary between
+exposures within one detector. Use the wavelength metadata from the `/v1` API
+when assessing motion or variability.
 
 Search snapshots and FITS files are stored under `backend/data` and are ignored by
 Git. The Python environment and generated frontend build are also ignored. The

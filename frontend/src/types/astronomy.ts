@@ -86,7 +86,7 @@ export type CatalogSource = {
   raDeg?: number
   decDeg?: number
 }
-export type OverlayResponse = { sources: CatalogSource[]; catalog?: string }
+export type OverlayResponse = { sources: CatalogSource[]; catalog?: string; warnings?: string[] }
 export type SavedFinding = {
   id: string
   savedAt: string

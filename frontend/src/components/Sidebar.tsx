@@ -1,5 +1,5 @@
 import type { FormEvent } from 'react'
-import { Search, ChevronDown, Layers3, SquareDashed, SlidersHorizontal, Crosshair, X } from 'lucide-react'
+import { AlertCircle, Search, ChevronDown, Layers3, SquareDashed, SlidersHorizontal, Crosshair, X } from 'lucide-react'
 import type { BandSelection, SearchTarget } from '../types/astronomy'
 
 function sexagesimal(value:string, ra:boolean): number | null {
@@ -23,10 +23,10 @@ export function parseSkyCoordinates(ra:string,dec:string,fov:number):SearchTarge
   if(raDeg===null||decDeg===null)return null
   return {raDeg,decDeg,fovArcmin:fov}
 }
-export default function Sidebar({ra,dec,onRa,onDec,fov,onFov,band,onBand,gaia,onGaia,hasFrames,
+export default function Sidebar({ra,dec,onRa,onDec,fov,onFov,band,onBand,gaia,onGaia,hasFrames,gaiaWarnings,
   brightness,onBrightness,contrast,onContrast,inverted,onInvert,loading,onSearch,onClose,error}: {
     ra:string;dec:string;onRa:(v:string)=>void;onDec:(v:string)=>void;fov:number;onFov:(v:number)=>void;
-    band:BandSelection;onBand:(b:BandSelection)=>void;gaia:boolean;onGaia:(b:boolean)=>void;hasFrames:boolean;
+    band:BandSelection;onBand:(b:BandSelection)=>void;gaia:boolean;onGaia:(b:boolean)=>void;hasFrames:boolean;gaiaWarnings?:string[];
     brightness:number;onBrightness:(n:number)=>void;contrast:number;onContrast:(n:number)=>void;
     inverted:boolean;onInvert:(b:boolean)=>void;loading:boolean;onSearch:(target:SearchTarget)=>void;onClose:()=>void;error?:string
   }) {
@@ -64,6 +64,7 @@ export default function Sidebar({ra,dec,onRa,onDec,fov,onFov,band,onBand,gaia,on
       <div className="control-heading"><Layers3 size={16}/>Catalog overlays</div>
       <label className={`toggle-row ${!hasFrames?'toggle-row-disabled':''}`}><span>Gaia DR3</span><input type="checkbox" role="switch" checked={gaia} disabled={!hasFrames} onChange={e=>onGaia(e.target.checked)}/><span className="toggle-track" aria-hidden="true"/></label>
       <p className="control-hint">Catalog sources are positioned by the backend using the image coordinates.</p>
+      {gaia&&gaiaWarnings?.map((w,i)=><p className="quality-warning" key={i}><AlertCircle size={14}/>{w}</p>)}
     </section>
     <section className="control-section">
       <div className="control-heading"><SlidersHorizontal size={16}/>Image display</div>

@@ -190,7 +190,10 @@ After `npm run build` in `frontend`, restarting FastAPI mounts `frontend/dist` a
 the root URL. Existing `/v1` APIs and `/docs` remain available. `/api/difference`
 and `/api/difference.png` implement the Compare tab: both requested observations
 are resampled with bilinear interpolation onto one shared tangent-plane grid and
-subtracted (to minus from), rendered as a zero-centered red/blue PNG. The
-frontend's existing unavailable-state handling covers the HTTP 501 responses for
-the remaining pending channel binning, spectral extraction, discovery, and
-overlays.
+subtracted (to minus from), rendered as a zero-centered red/blue PNG. `/api/overlays`
+implements the Gaia DR3 toggle: a cone search against ESA's public Gaia Archive
+TAP+ `sync` endpoint (`gea.esac.esa.int`, no key needed), with each source's
+position linearly propagated by its own proper motion to the observation's
+epoch and projected onto the same output grid `/api/images` renders. The
+frontend's existing unavailable-state handling covers the HTTP 501 responses
+for the remaining pending channel binning, spectral extraction, and discovery.

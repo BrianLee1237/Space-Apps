@@ -8,6 +8,8 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
+from .archive import ArchiveError
+from .gaia import gaia_overlay
 from .imaging import difference_png, preview_png
 from .models import SearchRequest
 from .targets import TARGETS
@@ -70,7 +72,7 @@ def resolve_difference_pair(sky, from_id, to_id):
     return request, a_path, b_path, warnings
 
 
-def frontend_router(sky):
+def frontend_router(sky, gaia):
     router = APIRouter(prefix="/api", tags=["Frontend"])
 
     @router.get("/resolve")
@@ -220,9 +222,22 @@ def frontend_router(sky):
             headers = {**headers, "X-Difference-Warning": " | ".join(pair_warnings)}
         return Response(png, media_type="image/png", headers=headers)
 
+    @router.get("/overlays")
+    def overlays(
+        observationId: Annotated[str, Query(min_length=1)],
+        catalog: Literal["gaia-dr3"] = "gaia-dr3",
+    ):
+        search_id, frame_id = observation_parts(observationId)
+        _, metadata = sky.frame(search_id, frame_id)
+        request = SearchRequest.model_validate(sky.manifest(search_id)["query"])
+        try:
+            sources, warnings = gaia_overlay(gaia, request, metadata["observed_at_utc"])
+        except ArchiveError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        return {"sources": sources, "catalog": catalog, "warnings": warnings}
+
     @router.get("/spectrum")
     @router.get("/candidates")
-    @router.get("/overlays")
     def pending_science_product():
         raise HTTPException(
             501, "This scientific product is pending implementation and validation."

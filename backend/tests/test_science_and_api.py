@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from spherex_api.app import create_app
 from spherex_api.archive import ArchiveClient, ArchiveError, cutout_url, parse_sia
 from spherex_api.config import Settings
+from spherex_api.gaia import GaiaClient
 from spherex_api.imaging import inspect_fits, output_wcs, registered_image
 from spherex_api.models import SearchRequest
 from spherex_api.service import SkyService
@@ -296,6 +297,71 @@ def test_difference_warns_on_mismatched_search_grids(tmp_path):
     assert "x-difference-warning" in {k.lower() for k in png.headers.keys()}
 
 
+def test_gaia_overlay_propagates_motion_and_filters_out_of_field(tmp_path):
+    """Gaia sources are moved to the observation epoch and clipped to the frame."""
+    query = SearchRequest(ra=133.7, dec=-7.2, fov_arcmin=10)
+    settings = Settings(data_dir=tmp_path)
+
+    def upstream(request):
+        content = sia_bytes() if request.url.path == "/SIA" else mef_bytes(query)
+        return httpx.Response(200, content=content)
+
+    service = SkyService(settings, ArchiveClient(settings, httpx.MockTransport(upstream)))
+
+    gaia_columns = [
+        {"name": name}
+        for name in (
+            "source_id",
+            "ra",
+            "dec",
+            "phot_g_mean_mag",
+            "pmra",
+            "pmdec",
+            "parallax",
+            "ref_epoch",
+        )
+    ]
+    gaia_rows = [
+        # Near the field center, with proper motion: should appear, shifted.
+        [111, 133.7, -7.2, 15.0, 200.0, -100.0, 5.0, 2016.0],
+        # Nearby but with no astrometric solution: should appear, unshifted.
+        [222, 133.701, -7.2, 16.0, None, None, None, 2016.0],
+        # Degrees away: should be filtered out as outside the rendered frame.
+        [333, 138.7, -7.2, 14.0, 0.0, 0.0, 10.0, 2016.0],
+    ]
+
+    def gaia_upstream(request):
+        return httpx.Response(200, json={"metadata": gaia_columns, "data": gaia_rows})
+
+    gaia = GaiaClient(settings, transport=httpx.MockTransport(gaia_upstream))
+    client = TestClient(create_app(settings, service=service, gaia=gaia))
+
+    observation = client.get(
+        "/api/observations", params={"ra": 133.7, "dec": -7.2, "fov": 10, "mode": "auto"}
+    ).json()["observations"][0]
+
+    response = client.get("/api/overlays", params={"observationId": observation["id"]})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["catalog"] == "gaia-dr3"
+    ids = {s["id"] for s in body["sources"]}
+    assert ids == {"111", "222"}  # 333 was outside the field and dropped
+    moved = next(s for s in body["sources"] if s["id"] == "111")
+    assert moved["raDeg"] != 133.7 and moved["decDeg"] != -7.2  # proper motion applied
+    unmoved = next(s for s in body["sources"] if s["id"] == "222")
+    assert unmoved["raDeg"] == pytest.approx(133.701) and unmoved["decDeg"] == pytest.approx(-7.2)
+    for source in body["sources"]:
+        assert 0 <= source["xFraction"] <= 1 and 0 <= source["yFraction"] <= 1
+    assert any("proper-motion" in w.lower() for w in body["warnings"])
+    assert any("no proper-motion solution" in w.lower() for w in body["warnings"])
+
+    assert client.get("/api/overlays", params={"observationId": "bad"}).status_code == 404
+    bad_catalog = client.get(
+        "/api/overlays", params={"observationId": observation["id"], "catalog": "wise"}
+    )
+    assert bad_catalog.status_code == 422
+
+
 def test_failed_download_is_not_committed(tmp_path):
     settings = Settings(data_dir=tmp_path)
 
@@ -350,7 +416,7 @@ def test_unchanged_frontend_contract(tmp_path):
     assert response.status_code == 200
     assert Image.open(io.BytesIO(response.content)).size == (512, 512)
     assert client.get("/api/images/invalid.png").status_code == 404
-    for path in ["spectrum", "candidates", "overlays"]:
+    for path in ["spectrum", "candidates"]:
         assert client.get("/api/" + path).status_code == 501
     for params in [
         {"ra": 1, "dec": 0, "mode": "detector", "index": 7},

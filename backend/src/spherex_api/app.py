@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from .archive import ArchiveError, CapacityError
 from .config import Settings
 from .frontend import frontend_dist, frontend_router
+from .gaia import GaiaClient
 from .imaging import preview_png
 from .models import Collection, SearchRequest
 from .service import SkyService
@@ -22,9 +23,10 @@ from .targets import TARGETS
 logger = logging.getLogger(__name__)
 
 
-def create_app(settings: Settings | None = None, service=None):
+def create_app(settings: Settings | None = None, service=None, gaia=None):
     settings = settings or Settings.from_env()
     sky = service or SkyService(settings)
+    gaia = gaia or GaiaClient(settings)
     app = FastAPI(
         title="SPHEREx Sky API",
         version="0.1.0",
@@ -92,6 +94,7 @@ def create_app(settings: Settings | None = None, service=None):
             "cache_budget_bytes": settings.cache_budget_bytes,
             "image_products": ["native_multi_extension_fits", "registered_quicklook_png"],
             "science_difference_imaging": True,
+            "gaia_dr3_overlay": True,
             "calibrated_spectrum_extraction": False,
         }
 
@@ -176,7 +179,7 @@ def create_app(settings: Settings | None = None, service=None):
         payload, headers = preview_png(path, query, pixels, vmin, vmax, reject_bits, subtract_zodi)
         return Response(payload, media_type="image/png", headers=headers)
 
-    app.include_router(frontend_router(sky))
+    app.include_router(frontend_router(sky, gaia))
     distribution = frontend_dist()
     if distribution.is_dir():
         app.mount("/", StaticFiles(directory=distribution, html=True), name="frontend")
