@@ -10,12 +10,12 @@ type Selection={type:'image';point:ImageLocation}|{type:'candidate';candidate:Ca
 export default function Inspector({view,frame,frames,selection,spectrum,spectrumBusy,spectrumError,
   discovery,discoveryBusy,discoveryError,onScan,onCandidate,
   diff,diffBusy,diffError,compareFrom,compareTo,onFrom,onTo,onGenerateDifference,onClearDifference,
-  target,notes,onSaveNote,onDeleteNote,onGuideTarget,guideBusy}:{
+  target,notes,onSaveNote,onDeleteNote,onGuideTarget,guideBusy,searchWarnings}:{
     view:ViewName;frame:Observation|null;frames:Observation[];selection:Selection;
     spectrum:SpectrumResponse|null;spectrumBusy:boolean;spectrumError:string;
     discovery:DiscoveryResponse|null;discoveryBusy:boolean;discoveryError:string;onScan:()=>void;onCandidate:(c:Candidate)=>void;
     diff:DifferenceResponse|null;diffBusy:boolean;diffError:string;compareFrom:number;compareTo:number;onFrom:(n:number)=>void;onTo:(n:number)=>void;onGenerateDifference:()=>void;onClearDifference:()=>void;
-    target:SearchTarget|null;notes:SavedFinding[];onSaveNote:(note:string)=>void;onDeleteNote:(id:string)=>void;onGuideTarget:(name:string)=>void;guideBusy:boolean;
+    target:SearchTarget|null;notes:SavedFinding[];onSaveNote:(note:string)=>void;onDeleteNote:(id:string)=>void;onGuideTarget:(name:string)=>void;guideBusy:boolean;searchWarnings?:string[];
   }) {
   const [explorerTab,setExplorerTab]=useState<'details'|'metadata'>('details')
   const currentTitle=view==='explorer'?'Object details':view==='discover'?'Discovery mode':view==='spectrum'?'Spectral fingerprint':view==='compare'?'Compare observations':view==='notebook'?'Discovery notebook':'Guided exploration'
@@ -70,6 +70,7 @@ export default function Inspector({view,frame,frames,selection,spectrum,spectrum
         {frame.flags?.length? <div><dt>Quality flags</dt><dd>{frame.flags.join(', ')}</dd></div>:null}
       </dl>}
       <p className="control-hint">Only metadata supplied by the backend is shown.</p>
+      {searchWarnings?.map((s,i)=><p className="quality-warning" key={i}><AlertCircle size={14}/>{s}</p>)}
     </section>}
     {view==='explorer'&&explorerTab==='details'&&<section className="inspector-body">
       <div className="panel-section-title"><Crosshair size={15}/>Selection</div>

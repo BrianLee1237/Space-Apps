@@ -6,7 +6,7 @@ import SkyViewer from '../components/SkyViewer'
 import Timeline from '../components/Timeline'
 import Inspector from '../components/Inspector'
 import { getCandidates,getDifference,getGaiaOverlay,getObservations,getSpectrum,resolveTarget } from '../services/api'
-import type { BandSelection,Candidate,DifferenceResponse,DiscoveryResponse,ImageLocation,Observation,OverlayResponse,SavedFinding,SearchTarget,SpectrumResponse,ViewName } from '../types/astronomy'
+import type { BandSelection,Candidate,DifferenceResponse,DiscoveryResponse,ImageLocation,Observation,OverlayResponse,SavedFinding,SearchTarget,SpectrumRequest,SpectrumResponse,ViewName } from '../types/astronomy'
 
 type LoadStatus='idle'|'loading'|'ready'|'empty'|'error'
 type Selection={type:'image';point:ImageLocation}|{type:'candidate';candidate:Candidate}|null
@@ -23,6 +23,7 @@ export default function Explorer(){
   const [target,setTarget]=useState<SearchTarget|null>(null)
   const [status,setStatus]=useState<LoadStatus>('idle'),[loadError,setLoadError]=useState('')
   const [frames,setFrames]=useState<Observation[]>([]),[index,setIndex]=useState(0)
+  const [searchWarnings,setSearchWarnings]=useState<string[]>([])
   const [playing,setPlaying]=useState(false),[speed,setSpeed]=useState(700)
   const [brightness,setBrightness]=useState(100),[contrast,setContrast]=useState(100),[inverted,setInverted]=useState(false)
   const [gaiaEnabled,setGaiaEnabled]=useState(false),[gaia,setGaia]=useState<OverlayResponse|null>(null)
@@ -33,7 +34,7 @@ export default function Explorer(){
   const [from,setFrom]=useState(0),[to,setTo]=useState(1)
   const [guideBusy,setGuideBusy]=useState(false)
   const [notes,setNotes]=useState<SavedFinding[]>(readNotes)
-  const abort=useRef<AbortController|null>(null),seq=useRef(0)
+  const abort=useRef<AbortController|null>(null),seq=useRef(0),specSeq=useRef(0),discoverySeq=useRef(0)
   const frame=frames[index]??null
 
   useEffect(()=>{try{localStorage.setItem(NOTES_KEY,JSON.stringify(notes))}catch{/* Private-browsing storage can fail. */}},[notes])
@@ -47,7 +48,10 @@ export default function Explorer(){
   useEffect(()=>{const params=new URLSearchParams(window.location.search)
     const rawRa=params.get('ra'),rawDec=params.get('dec'),rawFov=Number(params.get('fov')||10)
     if(rawRa===null||rawDec===null)return
-    const fovValue=[5,10,15,30,60].includes(rawFov)?rawFov:10
+    // The backend accepts any continuous value in [0.5, 60] (models.py's
+    // SearchRequest.fov_arcmin); snapping to the sidebar's five presets here
+    // would silently ignore an embedded URL's requested field of view.
+    const fovValue=Number.isFinite(rawFov)?Math.min(60,Math.max(0.5,rawFov)):10
     const position=parseSkyCoordinates(rawRa,rawDec,fovValue)
     if(!position)return
     const mode=params.get('mode'),value=Number(params.get('index'))
@@ -61,32 +65,35 @@ export default function Explorer(){
   async function loadObservations(next:SearchTarget,nextBand:BandSelection=band) {
     abort.current?.abort();const ctrl=new AbortController();abort.current=ctrl;const requestId=++seq.current
     setTarget(next);setFrames([]);setIndex(0);setPlaying(false);setLoadError('');setStatus('loading');
-    setSpectrum(null);setSelection(null);setDiscovery(null);setDiff(null);setGaia(null);setGaiaEnabled(false);setDiscoveryError('');setSpectrumError('');setDiffError('');
+    setSpectrum(null);setSelection(null);setDiscovery(null);setDiff(null);setGaia(null);setGaiaEnabled(false);setDiscoveryError('');setSpectrumError('');setDiffError('');setSearchWarnings([]);
     setRa(String(next.raDeg));setDec(String(next.decDeg));setFov(next.fovArcmin)
     const url=new URL(window.location.href);url.searchParams.set('ra',String(next.raDeg));url.searchParams.set('dec',String(next.decDeg));url.searchParams.set('fov',String(next.fovArcmin));url.searchParams.set('mode',nextBand.mode)
     if('index' in nextBand)url.searchParams.set('index',String(nextBand.index));else url.searchParams.delete('index')
     window.history.replaceState({},'',url.pathname+url.search+url.hash)
     try{const data=await getObservations(next,nextBand,ctrl.signal);if(ctrl.signal.aborted||seq.current!==requestId)return
-      setFrames(data.observations);setStatus(data.observations.length?'ready':'empty');setTo(data.observations.length>1?1:0);setFrom(0)
+      setFrames(data.observations);setStatus(data.observations.length?'ready':'empty');setTo(data.observations.length>1?1:0);setFrom(0);setSearchWarnings(data.warnings??[])
     }catch(e){if(ctrl.signal.aborted||seq.current!==requestId)return;setLoadError(e instanceof Error?e.message:'Unable to load observations.');setStatus('error')}
   }
   function updateBand(next:BandSelection){setBand(next);if(target)void loadObservations(target,next)}
   function updateFov(next:number){setFov(next);if(target)void loadObservations({...target,fovArcmin:next})}
   function changeIndex(i:number){setIndex(i);setPlaying(false);setDiff(null);setSpectrum(null);setSelection(null)}
-  async function inspect(point:ImageLocation){if(!frame)return;setSelection({type:'image',point});setSpectrum(null);setSpectrumError('');setSpectrumBusy(true)
-    try{setSpectrum(await getSpectrum({observationId:frame.id,xFraction:point.xFraction,yFraction:point.yFraction}))}
-    catch(e){setSpectrumError(e instanceof Error?e.message:'No spectrum available.')}
-    finally{setSpectrumBusy(false)}
+  async function runSpectrum(request:SpectrumRequest){const requestId=++specSeq.current
+    setSpectrum(null);setSpectrumError('');setSpectrumBusy(true)
+    try{const result=await getSpectrum(request);if(specSeq.current!==requestId)return;setSpectrum(result)}
+    catch(e){if(specSeq.current!==requestId)return;setSpectrumError(e instanceof Error?e.message:'No spectrum available.')}
+    finally{if(specSeq.current===requestId)setSpectrumBusy(false)}
   }
-  async function inspectCandidate(candidate:Candidate){setSelection({type:'candidate',candidate});setView('spectrum');setSpectrum(null);setSpectrumError('');setSpectrumBusy(true)
-    try{setSpectrum(await getSpectrum({raDeg:candidate.raDeg,decDeg:candidate.decDeg}))}
-    catch(e){setSpectrumError(e instanceof Error?e.message:'No spectrum available.')}
-    finally{setSpectrumBusy(false)}
+  async function inspect(point:ImageLocation){if(!frame)return;setSelection({type:'image',point})
+    await runSpectrum({observationId:frame.id,xFraction:point.xFraction,yFraction:point.yFraction})
   }
-  async function scan(){if(!target||frames.length<2)return;setDiscovery(null);setDiscoveryError('');setDiscoveryBusy(true)
-    try{setDiscovery(await getCandidates(target,frames))}
-    catch(e){setDiscoveryError(e instanceof Error?e.message:'Candidate scan unavailable.')}
-    finally{setDiscoveryBusy(false)}
+  async function inspectCandidate(candidate:Candidate){setSelection({type:'candidate',candidate});setView('spectrum')
+    await runSpectrum({raDeg:candidate.raDeg,decDeg:candidate.decDeg})
+  }
+  async function scan(){if(!target||frames.length<2)return;const requestId=++discoverySeq.current
+    setDiscovery(null);setDiscoveryError('');setDiscoveryBusy(true)
+    try{const result=await getCandidates(target,frames);if(discoverySeq.current!==requestId)return;setDiscovery(result)}
+    catch(e){if(discoverySeq.current!==requestId)return;setDiscoveryError(e instanceof Error?e.message:'Candidate scan unavailable.')}
+    finally{if(discoverySeq.current===requestId)setDiscoveryBusy(false)}
   }
   async function compare(){if(frames.length<2||from===to)return;setDiff(null);setDiffError('');setDiffBusy(true);setPlaying(false)
     try{setDiff(await getDifference(frames[from].id,frames[to].id))}
@@ -113,7 +120,7 @@ export default function Explorer(){
       <div className="viewer-workspace"><SkyViewer frame={frame} differenceUrl={diff?.imageUrl} status={status} error={loadError} candidates={discovery?.candidates??[]} gaia={gaia} brightness={brightness} contrast={contrast} inverted={inverted} onInspect={p=>void inspect(p)} onCandidate={c=>void inspectCandidate(c)}/>
         {loadError&&status==='ready'&&<div className="overlay-error" role="alert"><AlertTriangle size={15}/>{loadError}<button type="button" onClick={()=>setLoadError('')} aria-label="Dismiss error">×</button></div>}
       </div>
-      <Inspector view={view} frame={frame} frames={frames} selection={selection} spectrum={spectrum} spectrumBusy={spectrumBusy} spectrumError={spectrumError} discovery={discovery} discoveryBusy={discoveryBusy} discoveryError={discoveryError} onScan={()=>void scan()} onCandidate={c=>void inspectCandidate(c)} diff={diff} diffBusy={diffBusy} diffError={diffError} compareFrom={from} compareTo={to} onFrom={setFrom} onTo={setTo} onGenerateDifference={()=>void compare()} onClearDifference={()=>setDiff(null)} target={target} notes={notes} onSaveNote={saveNote} onDeleteNote={id=>setNotes(v=>v.filter(item=>item.id!==id))} onGuideTarget={name=>void guidedSearch(name)} guideBusy={guideBusy}/>
+      <Inspector view={view} frame={frame} frames={frames} selection={selection} spectrum={spectrum} spectrumBusy={spectrumBusy} spectrumError={spectrumError} discovery={discovery} discoveryBusy={discoveryBusy} discoveryError={discoveryError} onScan={()=>void scan()} onCandidate={c=>void inspectCandidate(c)} diff={diff} diffBusy={diffBusy} diffError={diffError} compareFrom={from} compareTo={to} onFrom={setFrom} onTo={setTo} onGenerateDifference={()=>void compare()} onClearDifference={()=>setDiff(null)} target={target} notes={notes} onSaveNote={saveNote} onDeleteNote={id=>setNotes(v=>v.filter(item=>item.id!==id))} onGuideTarget={name=>void guidedSearch(name)} guideBusy={guideBusy} searchWarnings={searchWarnings}/>
       <Timeline frames={frames} index={index} onIndex={changeIndex} playing={playing} onPlaying={setPlaying} speed={speed} onSpeed={setSpeed}/>
     </div>
   </div>

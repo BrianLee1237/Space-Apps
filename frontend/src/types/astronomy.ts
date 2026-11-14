@@ -29,6 +29,7 @@ export type ObservationsResponse = {
   observations: Observation[]
   dataUpdatedAt?: string
   dataRelease?: string
+  warnings?: string[]
 }
 export type ResolvedTarget = { raDeg: number; decDeg: number; name?: string }
 export type ImageLocation = { xFraction: number; yFraction: number }

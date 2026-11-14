@@ -181,6 +181,24 @@ def registered_image(path, request, pixels, reject_bits=0, subtract_zodi=False):
         return result
 
 
+def asinh_unit_stretch(scaled):
+    """Map a value already clipped to [-1, 1] through a signed asinh curve.
+
+    Shared by the grayscale preview and the diverging difference renderer so
+    their contrast behavior (and the stretch-strength constant) can't drift
+    apart between the two call sites.
+    """
+    return np.sign(scaled) * np.arcsinh(10 * np.abs(scaled)) / np.arcsinh(10)
+
+
+def encode_rgba_png(rgba_uint8):
+    """PNG-encode an (H, W, 4) uint8 array. FITS lower-origin becomes PNG
+    top-origin on the flip, so north stays up."""
+    buffer = io.BytesIO()
+    Image.fromarray(np.flipud(rgba_uint8)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
 def preview_png(
     path, request, pixels=256, vmin=None, vmax=None, reject_bits=0, subtract_zodi=False
 ):
@@ -193,12 +211,9 @@ def preview_png(
         if vmax <= vmin:
             vmax = vmin + 1
     scaled = np.clip((np.nan_to_num(image, nan=vmin) - vmin) / (vmax - vmin), 0, 1)
-    gray = np.round(np.arcsinh(10 * scaled) / np.arcsinh(10) * 255).astype(np.uint8)
+    gray = np.round(asinh_unit_stretch(scaled) * 255).astype(np.uint8)
     rgba = np.stack([gray, gray, gray, valid.astype(np.uint8) * 255], axis=-1)
-    # FITS lower-origin becomes PNG top-origin; north remains at the top.
-    buffer = io.BytesIO()
-    Image.fromarray(np.flipud(rgba)).save(buffer, format="PNG")
-    return buffer.getvalue(), {
+    return encode_rgba_png(rgba), {
         "X-Preview-Vmin": str(vmin),
         "X-Preview-Vmax": str(vmax),
         "X-Preview-Valid-Fraction": str(float(valid.mean())),
@@ -231,16 +246,13 @@ def difference_png(path_from, path_to, request, pixels=512, reject_bits=0, subtr
     if magnitude <= 0:
         magnitude = 1.0
     scaled = np.clip(np.nan_to_num(diff, nan=0.0) / magnitude, -1, 1)
-    # asinh keeps faint residuals visible without saturating the dipole core.
-    stretched = np.sign(scaled) * np.arcsinh(10 * np.abs(scaled)) / np.arcsinh(10)
+    stretched = asinh_unit_stretch(scaled)
     red = np.round(np.clip(stretched, 0, 1) * 255).astype(np.uint8)
     blue = np.round(np.clip(-stretched, 0, 1) * 255).astype(np.uint8)
     green = np.zeros_like(red)
     alpha = (valid.astype(np.uint8)) * 255
     rgba = np.stack([red, green, blue, alpha], axis=-1)
-    buffer = io.BytesIO()
-    Image.fromarray(np.flipud(rgba)).save(buffer, format="PNG")
-    return buffer.getvalue(), {
+    return encode_rgba_png(rgba), {
         "X-Difference-Vmax": str(magnitude),
         "X-Difference-Scale": "asinh-10-diverging-red-positive-blue-negative",
         "X-Preview-Valid-Fraction": str(float(valid.mean())),

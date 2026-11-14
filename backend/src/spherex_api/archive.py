@@ -106,6 +106,15 @@ class ArchiveClient:
         self.settings = settings
         self.transport = transport
         self.slots = threading.BoundedSemaphore(settings.archive_concurrency)
+        # One long-lived client so repeated downloads (a multi-epoch search
+        # can fetch dozens of frames) reuse HTTPS connections instead of
+        # paying a fresh TCP+TLS handshake per attempt.
+        self.client = httpx.Client(
+            timeout=httpx.Timeout(settings.timeout_seconds, connect=20),
+            follow_redirects=False,
+            transport=transport,
+            headers={"User-Agent": "SPHERExSkyAPI/0.1 (public-data prototype)"},
+        )
 
     def fetch(self, url, params=None) -> bytes:
         if not self.slots.acquire(timeout=1):
@@ -113,24 +122,18 @@ class ArchiveClient:
         try:
             for attempt in range(self.settings.retries + 1):
                 try:
-                    with httpx.Client(
-                        timeout=httpx.Timeout(self.settings.timeout_seconds, connect=20),
-                        follow_redirects=False,
-                        transport=self.transport,
-                        headers={"User-Agent": "SPHERExSkyAPI/0.1 (public-data prototype)"},
-                    ) as client:
-                        with client.stream("GET", url, params=params) as response:
-                            response.raise_for_status()
-                            chunks = []
-                            size = 0
-                            for chunk in response.iter_bytes():
-                                size += len(chunk)
-                                if size > self.settings.max_response_bytes:
-                                    raise ArchiveError(
-                                        "Archive response exceeds the configured byte limit"
-                                    )
-                                chunks.append(chunk)
-                            return b"".join(chunks)
+                    with self.client.stream("GET", url, params=params) as response:
+                        response.raise_for_status()
+                        chunks = []
+                        size = 0
+                        for chunk in response.iter_bytes():
+                            size += len(chunk)
+                            if size > self.settings.max_response_bytes:
+                                raise ArchiveError(
+                                    "Archive response exceeds the configured byte limit"
+                                )
+                            chunks.append(chunk)
+                        return b"".join(chunks)
                 except httpx.HTTPStatusError as exc:
                     retry = exc.response.status_code in {429, 500, 502, 503, 504}
                     if not retry or attempt == self.settings.retries:

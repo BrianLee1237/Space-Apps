@@ -49,6 +49,9 @@ def create_app(settings: Settings | None = None, service=None):
                 "X-Preview-Scale",
                 "X-Preview-Orientation",
                 "X-Preview-Zodi-Subtracted",
+                "X-Difference-Vmax",
+                "X-Difference-Scale",
+                "X-Difference-Warning",
             ],
         )
 

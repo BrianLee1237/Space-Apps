@@ -221,6 +221,81 @@ def test_difference_detects_a_moving_source(tmp_path):
     assert bad.status_code == 404
 
 
+def test_difference_swaps_out_of_order_ids_with_a_warning(tmp_path):
+    """Passing fromId/toId chronologically backwards must not invert red/blue."""
+    query = SearchRequest(ra=133.7, dec=-7.2, fov_arcmin=10)
+    second_url = DATA_URL.replace("example", "example2")
+    rows = [
+        (DATA_URL, "obs-a", "SPHEREx-D6", "spherex_dr1", 60900.0),
+        (second_url, "obs-b", "SPHEREx-D6", "spherex_dr1", 60901.0),
+    ]
+
+    def upstream(request):
+        if request.url.path == "/SIA":
+            return httpx.Response(200, content=sia_bytes(rows=rows))
+        if str(request.url).startswith(second_url):
+            return httpx.Response(200, content=mef_bytes(query, center_pixel=(46, 38)))
+        return httpx.Response(200, content=mef_bytes(query, center_pixel=(40, 38)))
+
+    settings = Settings(data_dir=tmp_path)
+    service = SkyService(settings, ArchiveClient(settings, httpx.MockTransport(upstream)))
+    client = TestClient(create_app(settings, service=service))
+
+    observations = client.get(
+        "/api/observations", params={"ra": 133.7, "dec": -7.2, "fov": 10, "mode": "auto"}
+    ).json()["observations"]
+    earlier_id, later_id = observations[0]["id"], observations[1]["id"]
+
+    # Deliberately backwards: fromId is the later observation, toId the earlier one.
+    diff = client.get(
+        "/api/difference", params={"fromId": later_id, "toId": earlier_id, "pixels": 64}
+    )
+    assert diff.status_code == 200
+    assert any("swapped" in w.lower() for w in diff.json()["warnings"])
+
+    png = client.get(diff.json()["imageUrl"])
+    image = np.array(Image.open(io.BytesIO(png.content)))
+    # Same physical result as calling it in the correct order: red (brighter
+    # later) still marks the source's later position, not inverted.
+    assert image[..., 0].max() > 100
+    assert image[..., 2].max() > 100
+
+
+def test_difference_warns_on_mismatched_search_grids(tmp_path):
+    """Differencing frames whose searches used a different field of view is flagged."""
+    narrow = SearchRequest(ra=133.7, dec=-7.2, fov_arcmin=10)
+    rows = [(DATA_URL, "obs-a", "SPHEREx-D6", "spherex_dr1", 60900.0)]
+
+    def upstream(request):
+        if request.url.path == "/SIA":
+            return httpx.Response(200, content=sia_bytes(rows=rows))
+        return httpx.Response(200, content=mef_bytes(narrow))
+
+    settings = Settings(data_dir=tmp_path)
+    service = SkyService(settings, ArchiveClient(settings, httpx.MockTransport(upstream)))
+    client = TestClient(create_app(settings, service=service))
+
+    narrow_id = client.get(
+        "/api/observations", params={"ra": 133.7, "dec": -7.2, "fov": 10, "mode": "auto"}
+    ).json()["observations"][0]["id"]
+    wide_id = client.get(
+        "/api/observations", params={"ra": 133.7, "dec": -7.2, "fov": 20, "mode": "auto"}
+    ).json()["observations"][0]["id"]
+
+    diff = client.get(
+        "/api/difference", params={"fromId": narrow_id, "toId": wide_id, "pixels": 64}
+    )
+    assert diff.status_code == 200
+    warnings = [w.lower() for w in diff.json()["warnings"]]
+    assert any("field of view" in w or "field center" in w for w in warnings)
+
+    png = client.get(
+        "/api/difference.png", params={"fromId": narrow_id, "toId": wide_id, "pixels": 64}
+    )
+    assert png.status_code == 200
+    assert "x-difference-warning" in {k.lower() for k in png.headers.keys()}
+
+
 def test_failed_download_is_not_committed(tmp_path):
     settings = Settings(data_dir=tmp_path)
 

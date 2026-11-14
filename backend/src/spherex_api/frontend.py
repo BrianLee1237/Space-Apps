@@ -19,6 +19,57 @@ def observation_parts(identifier):
     return identifier.split(".")
 
 
+def resolve_difference_pair(sky, from_id, to_id):
+    """Resolve fromId/toId to (request, earlier_path, later_path, warnings).
+
+    The pair is reordered into true chronological order by each frame's own
+    observation time, so the 'earlier'/'later' roles -- and the "red means
+    brighter in the later epoch" convention documented alongside this feature
+    -- hold regardless of which id the caller happened to label fromId vs
+    toId. The alignment grid is always the chronologically earlier frame's
+    own search, with a warning when the two searches aren't comparable.
+    """
+    a_search, a_frame = observation_parts(from_id)
+    b_search, b_frame = observation_parts(to_id)
+    a_path, a_metadata = sky.frame(a_search, a_frame)
+    b_path, b_metadata = sky.frame(b_search, b_frame)
+    swapped = b_metadata["mjd_start"] < a_metadata["mjd_start"]
+    if swapped:
+        a_search, a_path, a_metadata, b_search, b_path, b_metadata = (
+            b_search,
+            b_path,
+            b_metadata,
+            a_search,
+            a_path,
+            a_metadata,
+        )
+    warnings = []
+    if swapped:
+        warnings.append(
+            "The requested 'later' observation predates the requested 'earlier' one; "
+            "the two were swapped so red consistently means brighter in the later epoch."
+        )
+    if a_metadata["detector"] != b_metadata["detector"]:
+        warnings.append(
+            "The two frames use different detectors with different bandpasses; "
+            "the subtraction mixes wavelength coverage."
+        )
+    earlier_query = sky.manifest(a_search)["query"]
+    later_query = sky.manifest(b_search)["query"]
+    if (
+        earlier_query["ra"] != later_query["ra"]
+        or earlier_query["dec"] != later_query["dec"]
+        or earlier_query["fov_arcmin"] != later_query["fov_arcmin"]
+    ):
+        warnings.append(
+            "The two observations come from searches with a different field center or "
+            "field of view; the later cutout is reprojected onto the earlier search's "
+            "grid and the comparison may not be spatially meaningful."
+        )
+    request = SearchRequest.model_validate(earlier_query)
+    return request, a_path, b_path, warnings
+
+
 def frontend_router(sky):
     router = APIRouter(prefix="/api", tags=["Frontend"])
 
@@ -125,19 +176,12 @@ def frontend_router(sky):
         reject_bits: Annotated[int, Query(ge=0, le=2**32 - 1)] = 0,
         subtract_zodi: bool = False,
     ):
-        from_search, from_frame = observation_parts(fromId)
-        to_search, to_frame = observation_parts(toId)
-        _, from_metadata = sky.frame(from_search, from_frame)
-        _, to_metadata = sky.frame(to_search, to_frame)
+        _, _, _, pair_warnings = resolve_difference_pair(sky, fromId, toId)
         warnings = [
             "Not a flux-calibrated difference image: no PSF matching or background fitting.",
             "Residuals near bright, saturated, or flagged pixels are not scientifically validated.",
+            *pair_warnings,
         ]
-        if from_metadata["detector"] != to_metadata["detector"]:
-            warnings.append(
-                "The two frames use different detectors with different bandpasses; "
-                "the subtraction mixes wavelength coverage."
-            )
         image_params = urlencode(
             {
                 "fromId": fromId,
@@ -166,14 +210,14 @@ def frontend_router(sky):
         reject_bits: Annotated[int, Query(ge=0, le=2**32 - 1)] = 0,
         subtract_zodi: bool = False,
     ):
-        from_search, from_frame = observation_parts(fromId)
-        to_search, to_frame = observation_parts(toId)
-        path_from, _ = sky.frame(from_search, from_frame)
-        path_to, _ = sky.frame(to_search, to_frame)
-        request = SearchRequest.model_validate(sky.manifest(from_search)["query"])
-        png, headers = difference_png(
-            path_from, path_to, request, pixels, reject_bits, subtract_zodi
+        request, path_earlier, path_later, pair_warnings = resolve_difference_pair(
+            sky, fromId, toId
         )
+        png, headers = difference_png(
+            path_earlier, path_later, request, pixels, reject_bits, subtract_zodi
+        )
+        if pair_warnings:
+            headers = {**headers, "X-Difference-Warning": " | ".join(pair_warnings)}
         return Response(png, media_type="image/png", headers=headers)
 
     @router.get("/spectrum")

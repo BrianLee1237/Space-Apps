@@ -37,6 +37,12 @@ class Store:
         self.settings = settings
         self.root = settings.data_dir
         self.root.mkdir(parents=True, exist_ok=True)
+        # Walked once at startup; write_bytes() then keeps this current in
+        # memory instead of re-walking the whole cache tree on every write.
+        # Assumes one process owns this data_dir (true for the documented
+        # single uvicorn-process deployment); a multi-worker deployment
+        # sharing one data_dir would need a cross-process counter instead.
+        self._used_bytes = sum(p.stat().st_size for p in self.root.rglob("*") if p.is_file())
 
     def path(self, kind: str, identifier: str, suffix=".json"):
         if not re.fullmatch(r"[a-f0-9]{24}", identifier):
@@ -58,13 +64,13 @@ class Store:
     def write_bytes(self, path, content):
         # Serialize writes across threads/processes; never silently evict scientific products.
         with FileLock(str(self.root / "budget.lock"), timeout=30):
-            used = sum(p.stat().st_size for p in self.root.rglob("*") if p.is_file())
             previous = path.stat().st_size if path.exists() else 0
-            if used - previous + len(content) > self.settings.cache_budget_bytes:
+            if self._used_bytes - previous + len(content) > self.settings.cache_budget_bytes:
                 raise CapacityError(
                     "Local cache budget reached; archive data have not been deleted"
                 )
             atomic_write(path, content)
+            self._used_bytes += len(content) - previous
 
     def cached_search(self, query_key):
         try:
