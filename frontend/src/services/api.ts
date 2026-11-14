@@ -23,7 +23,6 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
     throw new ApiError('Unable to reach the data service. Check the FastAPI server.')
   }
   if (!response.ok) {
-    if (response.status === 404 || response.status === 501) throw new ApiError('This backend endpoint is not available yet.', response.status)
     let detail = `Data service returned HTTP ${response.status}.`
     try {
       const body: unknown = await response.json()
@@ -77,4 +76,8 @@ export async function getGaiaOverlay(observationId:string,signal?:AbortSignal) {
   const data=await request<OverlayResponse>(`/overlays?${params({observationId,catalog:'gaia-dr3'})}`,signal)
   if(!data || !Array.isArray(data.sources))throw new ApiError('Expected sources[] from Gaia overlay service.')
   return data
+}
+
+export async function getObservationMetadata(observationId:string,signal?:AbortSignal) {
+  return request<Partial<Observation>>(`/metadata?${params({observationId})}`,signal)
 }

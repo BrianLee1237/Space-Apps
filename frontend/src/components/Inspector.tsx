@@ -24,7 +24,8 @@ export default function Inspector({view,frame,frames,selection,spectrum,spectrum
     <div className="inspector-header">
       {view==='explorer'?<div className="inspector-tabs"><button className={explorerTab==='details'?'active':''} type="button" onClick={()=>setExplorerTab('details')}>Object details</button><button type="button" className={explorerTab==='metadata'?'active':''} onClick={()=>setExplorerTab('metadata')}>Metadata</button></div>:<h2>{currentTitle}</h2>}
     </div>
-    {view==='guide'&&<Guide onSelect={onGuideTarget} loading={guideBusy}/>}
+    {candidate&&<section className="change-explanation" aria-live="polite"><strong>{candidate.label} · {candidate.classification==='moving-source'?'Possible motion':'Possible brightness change'}</strong><p>{candidate.caption||candidate.notes}</p>{candidate.earlierAt&&<small>{new Date(candidate.earlierAt).toLocaleDateString()} → {new Date(candidate.laterAt!).toLocaleDateString()} · {candidate.elapsedDays?.toFixed(1)} days</small>}</section>}
+    {view==='guide' &&<Guide onSelect={onGuideTarget} loading={guideBusy}/>}
     {view==='notebook'&&<Notebook items={notes} target={target} frames={frames} candidate={candidate} onSave={onSaveNote} onDelete={onDeleteNote}/>}
     {view==='compare'&&<section className="inspector-body">
       <p className="section-explainer">Compare real observations of the same sky region. The backend must align images before subtraction.</p>
@@ -48,7 +49,7 @@ export default function Inspector({view,frame,frames,selection,spectrum,spectrum
         {discovery.method&&<p className="control-hint">Method: {discovery.method}</p>}
         {discovery.candidates.length===0&&<p className="empty-text">No candidates returned.</p>}
         {discovery.candidates.map(c=><button type="button" className="candidate-row" key={c.id} onClick={()=>onCandidate(c)}>
-          <span className="candidate-icon"><Crosshair size={16}/></span><span><strong>{c.label||`Candidate ${c.id}`}</strong><small>RA {c.raDeg.toFixed(5)}°, Dec {c.decDeg.toFixed(5)}°</small>{c.classification&&<small>{c.classification} · Unverified</small>}</span>
+          <span className="candidate-icon"><Crosshair size={16}/></span><span><strong>{c.label||`Candidate ${c.id}`}</strong><small>RA {c.raDeg.toFixed(5)}°, Dec {c.decDeg.toFixed(5)}°</small>{c.notes&&<small>{c.notes}</small>}{c.classification&&<small>{c.classification} · Unverified</small>}</span>
         </button>)}
         {discovery.warnings?.map((s,i)=><p className="quality-warning" key={i}><AlertCircle size={14}/>{s}</p>)}
       </>}
@@ -65,7 +66,7 @@ export default function Inspector({view,frame,frames,selection,spectrum,spectrum
         <div><dt>Observation ID</dt><dd>{frame.id}</dd></div><div><dt>Observed</dt><dd>{new Date(frame.observedAt).toLocaleString()}</dd></div>
         {frame.release&&<div><dt>Release</dt><dd>{frame.release}</dd></div>}
         {frame.detector&&<div><dt>Detector</dt><dd>{frame.detector}</dd></div>}
-        {frame.channel&&<div><dt>Channel</dt><dd>{frame.channel}</dd></div>}
+        {frame.centralWavelengthMicron&&<div><dt>Wavelength</dt><dd>{frame.centralWavelengthMicron.toFixed(4)} µm</dd></div>}{frame.psfFwhmArcsec&&<div><dt>PSF width</dt><dd>{frame.psfFwhmArcsec.toFixed(2)} arcsec</dd></div>}{frame.channel&&<div><dt>Channel</dt><dd>{frame.channel}</dd></div>}
         {frame.exposureSeconds!==undefined&&<div><dt>Exposure</dt><dd>{frame.exposureSeconds} seconds</dd></div>}
         {frame.flags?.length? <div><dt>Quality flags</dt><dd>{frame.flags.join(', ')}</dd></div>:null}
       </dl>}

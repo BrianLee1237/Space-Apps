@@ -70,11 +70,18 @@ a bright/saturated star are excluded as likely detector overflow rather than
 real flux, and the response's `warnings` say so. At most the 8 most
 significant candidates are returned per request.
 
-Channel-binned sequences and spectral extraction remain pending scientific
-implementation. Their routes return HTTP 501, which the existing frontend
-displays as unavailable. Wavelength can vary between exposures within one
-detector. Use the wavelength metadata from the `/v1` API when assessing
-motion or variability.
+Channel wavelength-window selection now uses the official 102-row calibration
+summary and masks pixels outside the selected window. Clicking an image returns
+measured quick-look spectral samples from up to 16 exposures in the current detector
+sequence. Full-band PSF-corrected source spectra and validated coadds remain pending.
+
+Use **Search by RA / Dec** for coordinates. Choose a minimum epoch separation in
+the toolbar, then **Highlight changes** for numbered residual markers and explanatory
+captions. The comparison defaults to the first and last displayed epochs. The
+Compare tab selects another pair. The timeline shows actual elapsed days.
+
+See [the requirements review](REQUIREMENTS_REVIEW.md) for the mandatory objectives,
+optional considerations, cadence interpretation, and remaining scientific work.
 
 Search snapshots and FITS files are stored under `backend/data` and are ignored by
 Git. The Python environment and generated frontend build are also ignored. The

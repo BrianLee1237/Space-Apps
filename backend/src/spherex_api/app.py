@@ -97,6 +97,8 @@ def create_app(settings: Settings | None = None, service=None, gaia=None):
             "gaia_dr3_overlay": True,
             "candidate_detection": True,
             "calibrated_spectrum_extraction": False,
+            "quicklook_surface_brightness_spectrum": True,
+            "channel_wavelength_windows": 102,
         }
 
     @app.get("/v1/targets")

@@ -17,7 +17,7 @@ export default function Navbar({view,onView,settingsOpen,onToggleSettings}:{
       {items.map(item=><button type="button" className={`nav-item ${view===item.id?'nav-item-active':''}`} key={item.id} onClick={()=>onView(item.id)} aria-current={view===item.id?'page':undefined}>{item.label}</button>)}
     </nav>
     <button type="button" className={`settings-trigger ${settingsOpen?'settings-trigger-active':''}`} onClick={onToggleSettings} aria-pressed={settingsOpen} aria-label={settingsOpen?'Hide search and settings':'Show search and settings'}>
-      {settingsOpen?<PanelLeftClose size={17}/>:<PanelLeftOpen size={17}/>}<SlidersHorizontal size={16}/><span>Settings</span>
+      {settingsOpen?<PanelLeftClose size={17}/>:<PanelLeftOpen size={17}/>}<SlidersHorizontal size={16}/><span>Search sky</span>
     </button>
   </header>
 }

@@ -1,6 +1,8 @@
 """Compatibility routes for the existing, unchanged React frontend."""
 
+import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlencode
@@ -13,7 +15,10 @@ from .candidates import detect_candidates
 from .gaia import gaia_overlay
 from .imaging import difference_png, preview_png
 from .models import SearchRequest
+from .spectrum import extract_spectrum
 from .targets import TARGETS
+
+CHANNELS = json.loads(Path(__file__).with_name("channels.json").read_text())
 
 
 def observation_parts(identifier):
@@ -102,6 +107,18 @@ def frontend_router(sky, gaia):
                 }
         raise HTTPException(422, "Choose one of the five guided targets or enter sky coordinates.")
 
+    @router.get("/metadata")
+    def metadata(observationId: str):
+        search_id, frame_id = observation_parts(observationId)
+        _, values = sky.frame(search_id, frame_id)
+        return {
+            "id": observationId,
+            "flags": values.get("center_flag_names", []),
+            "centralWavelengthMicron": values.get("central_wavelength_um"),
+            "bandwidthMicron": values.get("central_bandwidth_um"),
+            "psfFwhmArcsec": values.get("psf_fwhm_arcsec"),
+        }
+
     @router.get("/observations")
     def observations(
         ra: Annotated[float, Query(ge=0, lt=360, allow_inf_nan=False)],
@@ -110,12 +127,13 @@ def frontend_router(sky, gaia):
         mode: Literal["auto", "detector", "channel"] = "auto",
         index: Annotated[int | None, Query(ge=1, le=102)] = None,
     ):
-        if mode == "channel":
-            raise HTTPException(501, "Nominal-channel image sequences require spectral binning.")
+        if mode == "channel" and index is None:
+            raise HTTPException(422, "Choose a channel between 1 and 102.")
         if mode == "detector" and (index is None or index > 6):
             raise HTTPException(422, "Detector mode requires index between 1 and 6.")
         # A single detector keeps the initial animation within one detector bandpass.
-        detector = index if mode == "detector" else 6
+        channel = CHANNELS[index - 1] if mode == "channel" else None
+        detector = channel["detector"] if channel else index if mode == "detector" else 6
         query = SearchRequest(ra=ra, dec=dec, fov_arcmin=fov, detectors=(detector,))
         manifest = sky.search(query)
         if not manifest["complete"]:
@@ -123,6 +141,40 @@ def frontend_router(sky, gaia):
                 422, "The archive truncated this search. Use /v1/search with a narrower time range."
             )
         frames = manifest["frames"]
+        if channel:
+
+            def matches(frame):
+                try:
+                    _, metadata = sky.frame(manifest["search_id"], frame["frame_id"])
+                    wavelength = metadata.get("central_wavelength_um")
+                    return (
+                        wavelength is not None
+                        and channel["WL_MIN"] <= wavelength <= channel["WL_MAX"]
+                    )
+                except ArchiveError:
+                    return None
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                matches_by_frame = list(pool.map(matches, frames))
+                failed_count = matches_by_frame.count(None)
+                if frames and failed_count == len(frames):
+                    raise ArchiveError("Channel cutouts failed retrieval. Retry the search.")
+                frames = [
+                    frame for frame, match in zip(frames, matches_by_frame, strict=True) if match
+                ]
+            manifest = {
+                **manifest,
+                "warnings": [
+                    *manifest["warnings"],
+                    f"Channel {index} window "
+                    f"{channel['WL_MIN']:.4f}–{channel['WL_MAX']:.4f} µm. "
+                    "Pixels outside that approximate spectral-WCS window are transparent.",
+                ],
+            }
+            if failed_count:
+                manifest["warnings"].append(
+                    f"{failed_count} cutouts failed retrieval. This channel sequence is partial."
+                )
         limits = {}
         if frames:
             _, first_metadata = sky.frame(manifest["search_id"], frames[0]["frame_id"])
@@ -133,7 +185,9 @@ def frontend_router(sky, gaia):
         result = []
         for frame in frames:
             identifier = manifest["search_id"] + "." + frame["frame_id"]
-            image_params = urlencode({"pixels": 512, **limits})
+            image_params = urlencode(
+                {"pixels": 512, **limits, **({"channel": index} if channel else {})}
+            )
             observation = {
                 "id": identifier,
                 "observedAt": frame["observed_at_utc"],
@@ -146,6 +200,8 @@ def frontend_router(sky, gaia):
                 "fitsUrl": frame["links"]["fits"],
                 "metadataUrl": frame["links"]["metadata"],
             }
+            if channel:
+                observation["channel"] = index
             exposure = frame["archive_metadata"].get("t_exptime")
             if exposure is not None:
                 observation["exposureSeconds"] = exposure
@@ -173,13 +229,17 @@ def frontend_router(sky, gaia):
         pixels: Annotated[int, Query(ge=32, le=1024)] = 512,
         vmin: Annotated[float | None, Query(allow_inf_nan=False)] = None,
         vmax: Annotated[float | None, Query(allow_inf_nan=False)] = None,
+        channel: Annotated[int | None, Query(ge=1, le=102)] = None,
     ):
         if (vmin is None) != (vmax is None) or (vmin is not None and vmin >= vmax):
             raise HTTPException(422, "Supply both vmin and vmax with vmin < vmax.")
         search_id, frame_id = observation_parts(identifier)
         path, _ = sky.frame(search_id, frame_id)
         query = SearchRequest.model_validate(sky.manifest(search_id)["query"])
-        png, headers = preview_png(path, query, pixels, vmin, vmax)
+        bounds = (
+            (CHANNELS[channel - 1]["WL_MIN"], CHANNELS[channel - 1]["WL_MAX"]) if channel else None
+        )
+        png, headers = preview_png(path, query, pixels, vmin, vmax, channel_bounds=bounds)
         return Response(png, media_type="image/png", headers=headers)
 
     @router.get("/difference")
@@ -292,10 +352,18 @@ def frontend_router(sky, gaia):
         }
 
     @router.get("/spectrum")
-    def pending_science_product():
-        raise HTTPException(
-            501, "This scientific product is pending implementation and validation."
-        )
+    def spectrum(
+        observationId: str,
+        x: Annotated[float, Query(ge=0, le=1)] = 0.5,
+        y: Annotated[float, Query(ge=0, le=1)] = 0.5,
+        ra: Annotated[float | None, Query(ge=0, lt=360)] = None,
+        dec: Annotated[float | None, Query(ge=-90, le=90)] = None,
+    ):
+        search_id, frame_id = observation_parts(observationId)
+        manifest_frame_entry(sky, observationId)
+        if (ra is None) != (dec is None):
+            raise HTTPException(422, "Supply both RA and declination.")
+        return extract_spectrum(sky, search_id, x, y, ra, dec)
 
     return router
 

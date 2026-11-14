@@ -149,13 +149,26 @@ def output_wcs(request: SearchRequest, pixels: int):
     return wcs
 
 
-def registered_image(path, request, pixels, reject_bits=0, subtract_zodi=False):
+def registered_image(
+    path, request, pixels, reject_bits=0, subtract_zodi=False, channel_bounds=None
+):
     with fits.open(path, memmap=False) as hdus:
         image = np.asarray(hdus["IMAGE"].data, dtype=np.float64)
         if subtract_zodi:
             image = image - hdus["ZODI"].data
         flags = np.asarray(hdus["FLAGS"].data, dtype=np.uint32)
         valid = np.isfinite(image) & ((flags & reject_bits) == 0)
+        if channel_bounds:
+            header = hdus["IMAGE"].header.copy()
+            for keyword in list(header):
+                if re.fullmatch(r"(A|B|AP|BP)_(ORDER|\d+_\d+)", keyword):
+                    del header[keyword]
+            spectral = WCS(header, fobj=hdus, key="W")
+            spectral.sip = None
+            yy_native, xx_native = np.indices(image.shape)
+            wavelength, _ = spectral.pixel_to_world(xx_native, yy_native)
+            wave = wavelength.to_value(u.um)
+            valid &= (wave >= channel_bounds[0]) & (wave <= channel_bounds[1])
         source_wcs = spatial_wcs(hdus["IMAGE"].header)
         target_wcs = output_wcs(request, pixels)
         yy, xx = np.indices((pixels, pixels), dtype=float)
@@ -200,9 +213,16 @@ def encode_rgba_png(rgba_uint8):
 
 
 def preview_png(
-    path, request, pixels=256, vmin=None, vmax=None, reject_bits=0, subtract_zodi=False
+    path,
+    request,
+    pixels=256,
+    vmin=None,
+    vmax=None,
+    reject_bits=0,
+    subtract_zodi=False,
+    channel_bounds=None,
 ):
-    image = registered_image(path, request, pixels, reject_bits, subtract_zodi)
+    image = registered_image(path, request, pixels, reject_bits, subtract_zodi, channel_bounds)
     valid = np.isfinite(image)
     if not valid.any():
         raise ArchiveError("No valid pixels cover this preview after masking")

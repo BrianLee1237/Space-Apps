@@ -1,7 +1,7 @@
 import type { SpectrumResponse } from '../types/astronomy'
 export default function SpectrumPlot({data}:{data:SpectrumResponse}) {
   const points=data.samples
-  if(points.length<2)return <p className="muted-message">Not enough spectral samples to plot.</p>
+  if(!points.length)return <p className="muted-message">No valid, unflagged samples cover this location.</p>
   const xMin=Math.min(...points.map(p=>p.wavelengthMicron)),xMax=Math.max(...points.map(p=>p.wavelengthMicron))
   const yMin=Math.min(...points.map(p=>p.flux-(p.uncertainty??0))),yMax=Math.max(...points.map(p=>p.flux+(p.uncertainty??0)))
   const x=(v:number)=>42+(v-xMin)/Math.max(1e-9,xMax-xMin)*252

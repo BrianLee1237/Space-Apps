@@ -20,9 +20,7 @@ from .imaging import difference_image, output_wcs
 
 # Flags most likely to fake a "moving source" dipole rather than reflect real
 # sky motion: detector artifacts, not an astrophysical source or outlier pixel.
-DEFAULT_CANDIDATE_REJECT_BITS = sum(
-    1 << bit for bit in (1, 2, 9, 20, 22, 23, 24, 25, 26, 27, 28)
-)
+DEFAULT_CANDIDATE_REJECT_BITS = sum(1 << bit for bit in (1, 2, 9, 20, 22, 23, 24, 25, 26, 27, 28))
 
 
 def _blobs(mask, score, median, raw):
@@ -158,7 +156,7 @@ def detect_candidates(
                     "brightness-change",
                     None,
                     blob["peak"],
-                    f"Brightened by {blob['peak']:.3g} (native surface-brightness units) "
+                    f"Positive residual of {blob['peak']:.3g} MJy/sr "
                     f"with no matching dimmed region nearby; could be a variable source or "
                     f"an unmatched artifact.",
                     method,
@@ -188,6 +186,8 @@ def detect_candidates(
                 method,
             )
         )
+        candidates[-1]["previousXFraction"] = other["x"] / (pixels - 1)
+        candidates[-1]["previousYFraction"] = 1 - other["y"] / (pixels - 1)
     for index, other in enumerate(negative):
         if index in used_negative:
             continue
@@ -202,7 +202,7 @@ def detect_candidates(
                 "brightness-change",
                 None,
                 -other["peak"],
-                f"Dimmed by {other['peak']:.3g} (native surface-brightness units) with no "
+                f"Negative residual of {other['peak']:.3g} MJy/sr with no "
                 f"matching brightened region nearby; could be a variable source or an "
                 f"unmatched artifact.",
                 method,
@@ -215,6 +215,12 @@ def detect_candidates(
             "above threshold; the rest are omitted, not ruled out."
         )
         candidates = candidates[:max_candidates]
+    for number, candidate in enumerate(candidates, 1):
+        candidate["label"] = f"Change {number}"
+        candidate["earlierAt"] = earlier_iso
+        candidate["laterAt"] = later_iso
+        candidate["elapsedDays"] = float(elapsed_days)
+        candidate["caption"] = candidate["notes"] + " Unverified image residual."
     return candidates, warnings
 
 

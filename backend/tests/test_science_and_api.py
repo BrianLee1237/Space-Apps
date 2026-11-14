@@ -329,6 +329,8 @@ def test_candidates_detects_a_moving_source(tmp_path):
     assert response.status_code == 200
     body = response.json()
     movers = [c for c in body["candidates"] if c["classification"] == "moving-source"]
+    assert all(c["caption"] and c["elapsedDays"] > 0 for c in body["candidates"])
+    assert all(0 <= c["previousXFraction"] <= 1 for c in movers)
     assert len(movers) >= 1
     mover = movers[0]
     assert mover["displacementArcsec"] > 0
@@ -461,8 +463,13 @@ def test_unchanged_frontend_contract(tmp_path):
     assert response.status_code == 200
     assert Image.open(io.BytesIO(response.content)).size == (512, 512)
     assert client.get("/api/images/invalid.png").status_code == 404
-    for path in ["spectrum"]:
-        assert client.get("/api/" + path).status_code == 501
+    response = client.get(
+        "/api/spectrum", params={"observationId": observation["id"], "x": 0.5, "y": 0.5}
+    )
+    assert response.status_code == 200
+    assert response.json()["fluxUnit"] == "MJy/sr"
+    assert len(response.json()["samples"]) == 1
+    assert response.json()["samples"][0]["wavelengthMicron"] == pytest.approx(4.5)
     for params in [
         {"ra": 1, "dec": 0, "mode": "detector", "index": 7},
         {"ra": "nan", "dec": 0},
@@ -472,6 +479,6 @@ def test_unchanged_frontend_contract(tmp_path):
         client.get(
             "/api/observations", params={"ra": 1, "dec": 0, "mode": "channel", "index": 102}
         ).status_code
-        == 501
+        == 200
     )
     assert SearchRequest(ra=0, dec=0, fov_arcmin=60).fov_arcmin == 60
