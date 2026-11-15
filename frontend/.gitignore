@@ -25,3 +25,6 @@ dist-ssr
 
 # SPHEREx template rollback files
 .spherex-template-backups/
+
+# Backups created by the SPHEREx frontend-only installer
+.spherex-update-backups/
