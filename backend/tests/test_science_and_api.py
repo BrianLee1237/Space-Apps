@@ -33,10 +33,11 @@ def sia_bytes(status="OK", rows=None):
     rows = rows or [
         (DATA_URL, "obs-a", "SPHEREx-D6", "spherex_dr1", 60902.0),
     ]
-    table = Table(
-        rows=rows,
-        names=["access_url", "obs_id", "energy_bandpassname", "obs_collection", "t_min"],
-    )
+    base_names = ["access_url", "obs_id", "energy_bandpassname", "obs_collection", "t_min"]
+    # Rows may optionally carry (em_min, em_max) in meters, matching the real
+    # archive's SIA response, to test wavelength-based grouping/sorting.
+    names = [*base_names, "em_min", "em_max"] if len(rows[0]) > len(base_names) else base_names
+    table = Table(rows=rows, names=names)
     votable = from_table(table)
     votable.resources[0].type = "results"
     votable.resources[0].infos.append(Info(name="QUERY_STATUS", value=status))
@@ -411,6 +412,7 @@ def test_channel_mode_groups_by_measured_wavelength(tmp_path):
     """Channel mode splits a detector's real exposures by their own wavelength."""
     query = SearchRequest(ra=133.7, dec=-7.2, fov_arcmin=10)
     count = 17
+    waves = [4.0 + i * (1.0 / (count - 1)) for i in range(count)]  # spread evenly over 1 micron
     rows = [
         (
             DATA_URL.replace("example", f"example{i}"),
@@ -418,6 +420,8 @@ def test_channel_mode_groups_by_measured_wavelength(tmp_path):
             "SPHEREx-D1",
             "spherex_dr1",
             60900.0 + i,
+            waves[i] * 1e-6,
+            waves[i] * 1e-6,
         )
         for i in range(count)
     ]
@@ -429,8 +433,9 @@ def test_channel_mode_groups_by_measured_wavelength(tmp_path):
         url = str(request.url)
         for data_url, i in urls.items():
             if url.startswith(data_url):
-                wave = 4.0 + i * (1.0 / (count - 1))  # spread evenly over 1 micron
-                return httpx.Response(200, content=mef_bytes(query, detector=1, wave_crval=wave))
+                return httpx.Response(
+                    200, content=mef_bytes(query, detector=1, wave_crval=waves[i])
+                )
         raise AssertionError("unexpected URL " + url)
 
     settings = Settings(data_dir=tmp_path)
@@ -507,6 +512,66 @@ def test_combine_averages_exposures_and_warns_on_detector_mismatch(tmp_path):
     assert too_few.status_code == 422
 
 
+def test_spectrum_extracts_real_flux_per_detector(tmp_path):
+    """Spectral fingerprint samples real flux at one point across detectors."""
+    query = SearchRequest(ra=133.7, dec=-7.2, fov_arcmin=10)
+    peak = output_wcs(query, 64).pixel_to_world(40, 38)
+    detector_waves = {1: 1.2, 3: 2.8, 6: 4.5}
+    urls = {
+        detector: DATA_URL.replace("example", f"example-d{detector}")
+        for detector in detector_waves
+    }
+    rows = [
+        (
+            urls[d],
+            f"obs-d{d}",
+            f"SPHEREx-D{d}",
+            "spherex_dr1",
+            60900.0,
+            detector_waves[d] * 1e-6,
+            detector_waves[d] * 1e-6,
+        )
+        for d in detector_waves
+    ]
+
+    def upstream(request):
+        if request.url.path == "/SIA":
+            return httpx.Response(200, content=sia_bytes(rows=rows))
+        url = str(request.url)
+        for d, data_url in urls.items():
+            if url.startswith(data_url):
+                return httpx.Response(
+                    200, content=mef_bytes(query, detector=d, wave_crval=detector_waves[d])
+                )
+        raise AssertionError("unexpected URL " + url)
+
+    settings = Settings(data_dir=tmp_path)
+    service = SkyService(settings, ArchiveClient(settings, httpx.MockTransport(upstream)))
+    client = TestClient(create_app(settings, service=service))
+
+    response = client.get("/api/spectrum", params={"ra": peak.ra.deg, "dec": peak.dec.deg})
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["samples"]) == 3
+    waves = [s["wavelengthMicron"] for s in body["samples"]]
+    assert waves == sorted(waves)
+    assert waves[0] == pytest.approx(1.2, abs=0.05)
+    assert waves[-1] == pytest.approx(4.5, abs=0.05)
+    for sample in body["samples"]:
+        assert sample["flux"] > 15  # near the Gaussian peak (amplitude 20)
+        assert sample["uncertainty"] is not None
+    assert body["fluxUnit"] == "MJy/sr"
+    assert body["extractionMethod"]
+
+    far = client.get("/api/spectrum", params={"ra": 1, "dec": 0})
+    assert far.status_code == 200
+    far_body = far.json()
+    assert far_body["samples"] == []
+    assert any("covered this exact sky position" in w.lower() for w in far_body["warnings"])
+
+    assert client.get("/api/spectrum").status_code == 422
+
+
 def test_failed_download_is_not_committed(tmp_path):
     settings = Settings(data_dir=tmp_path)
 
@@ -561,8 +626,7 @@ def test_unchanged_frontend_contract(tmp_path):
     assert response.status_code == 200
     assert Image.open(io.BytesIO(response.content)).size == (512, 512)
     assert client.get("/api/images/invalid.png").status_code == 404
-    for path in ["spectrum"]:
-        assert client.get("/api/" + path).status_code == 501
+    assert client.get("/api/spectrum").status_code == 422
     for params in [
         {"ra": 1, "dec": 0, "mode": "detector", "index": 7},
         {"ra": "nan", "dec": 0},

@@ -98,7 +98,7 @@ def create_app(settings: Settings | None = None, service=None, gaia=None):
             "candidate_detection": True,
             "channel_mode": True,
             "exposure_combination": True,
-            "calibrated_spectrum_extraction": False,
+            "calibrated_spectrum_extraction": True,
         }
 
     @app.get("/v1/targets")

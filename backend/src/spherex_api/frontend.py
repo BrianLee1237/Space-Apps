@@ -1,7 +1,6 @@
 """Compatibility routes for the existing, unchanged React frontend."""
 
 import re
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlencode
@@ -14,29 +13,9 @@ from .candidates import detect_candidates
 from .gaia import gaia_overlay
 from .imaging import combine_png, difference_png, preview_png
 from .models import SearchRequest
+from .spectral import CHANNELS_PER_DETECTOR, wavelength_sorted_groups
+from .spectrum import build_fingerprint, resolve_pixel_sky_position
 from .targets import TARGETS
-
-# SPHEREx's mission documentation describes the full focal plane as 102
-# nominal spectral channels; it divides evenly across the 6 detector arrays.
-CHANNELS_PER_DETECTOR = 17
-
-
-def _split_evenly(items, groups):
-    """Split a list into `groups` contiguous chunks of as-equal-as-possible size.
-
-    With fewer items than groups, the first few groups get one item each and
-    the rest are empty -- an honest reflection of limited archive coverage,
-    not a reason to fabricate data to fill every slot.
-    """
-    count = len(items)
-    base, extra = divmod(count, groups)
-    result = []
-    start = 0
-    for index in range(groups):
-        size = base + (1 if index < extra else 0)
-        result.append(items[start : start + size])
-        start += size
-    return result
 
 
 def observation_parts(identifier):
@@ -189,46 +168,32 @@ def frontend_router(sky, gaia):
         search_id = manifest["search_id"]
 
         if mode == "channel" and frames:
-            # SPHEREx's linear variable filter means the wavelength at this sky
-            # position differs between exposures of the same detector. There is
-            # no published per-pixel channel-boundary table to bin against, so
-            # channels are formed empirically: every real exposure actually
-            # available for this detector and field, sorted by its own measured
-            # central wavelength and split into CHANNELS_PER_DETECTOR groups of
-            # roughly equal size. "Channel N" is real data closest to the Nth
-            # of those wavelengths, not a fixed SPHEREx-defined bin.
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                wavelengths = list(
-                    pool.map(lambda f: sky.frame(search_id, f["frame_id"])[1], frames)
+            # SPHEREx's linear variable filter means the detector's recorded
+            # bandpass for a given exposure varies with dither position.
+            # "Channel N" is real data closest to the Nth of those recorded
+            # bandpasses, not a fixed SPHEREx-defined bin -- see
+            # spectral.wavelength_sorted_groups.
+            chunks, wave_min, wave_max = wavelength_sorted_groups(frames)
+            frames = chunks[channel_slot]
+            if wave_min is None:
+                channel_warnings.append(
+                    f"No detector {detector} exposure in this search reported a usable "
+                    "bandpass, so a wavelength could not be measured to form channels."
                 )
-            # The requested center can fall outside a given exposure's own
-            # footprint (edge coverage, detector rotation), in which case its
-            # central wavelength is never measured; such frames can't be
-            # placed in a wavelength-sorted channel.
-            dated = [
-                (frame, meta)
-                for frame, meta in zip(frames, wavelengths, strict=True)
-                if meta.get("central_wavelength_um") is not None
-            ]
-            if dated:
-                ordered = sorted(dated, key=lambda pair: pair[1]["central_wavelength_um"])
-                groups = _split_evenly([pair[0] for pair in ordered], CHANNELS_PER_DETECTOR)
-                frames = groups[channel_slot]
-                waves = [meta["central_wavelength_um"] for _, meta in ordered]
+            elif frames:
                 channel_warnings.append(
                     f"Channel {index} groups detector {detector}'s {len(frames)} real "
-                    "exposure(s) whose own measured central wavelength (range observed at "
-                    f"this position: {min(waves):.3f}-{max(waves):.3f} micron) falls in "
-                    f"roughly the {channel_slot + 1} of {CHANNELS_PER_DETECTOR} "
-                    "wavelength-sorted groups for this detector -- an empirical grouping, "
-                    "not SPHEREx's own fixed channel table."
+                    "exposure(s) whose own recorded bandpass (range observed for this "
+                    f"search: {wave_min:.3f}-{wave_max:.3f} micron) falls in roughly the "
+                    f"{channel_slot + 1} of {CHANNELS_PER_DETECTOR} wavelength-sorted "
+                    "groups for this detector -- an empirical grouping, not SPHEREx's own "
+                    "fixed channel table."
                 )
             else:
-                frames = []
                 channel_warnings.append(
-                    f"No detector {detector} exposure had the requested sky coordinate "
-                    "inside its own field, so a wavelength could not be measured to form "
-                    "channels."
+                    f"Detector {detector} has fewer real exposures than the "
+                    f"{CHANNELS_PER_DETECTOR} wavelength-sorted channel groups; this "
+                    "particular channel slot has none."
                 )
 
         limits = display_limits(search_id, frames[0]) if frames else {}
@@ -428,10 +393,50 @@ def frontend_router(sky, gaia):
         }
 
     @router.get("/spectrum")
-    def pending_science_product():
-        raise HTTPException(
-            501, "This scientific product is pending implementation and validation."
-        )
+    def spectrum(
+        observationId: Annotated[str | None, Query(min_length=1)] = None,
+        x: Annotated[float | None, Query(ge=0, le=1)] = None,
+        y: Annotated[float | None, Query(ge=0, le=1)] = None,
+        ra: Annotated[float | None, Query(ge=0, lt=360, allow_inf_nan=False)] = None,
+        dec: Annotated[float | None, Query(ge=-90, le=90, allow_inf_nan=False)] = None,
+    ):
+        if ra is not None and dec is not None:
+            target_ra, target_dec = ra, dec
+            fov_arcmin = 2.0
+            label = f"RA {ra:.5f}°, Dec {dec:.5f}°"
+        elif observationId is not None and x is not None and y is not None:
+            search_id, _ = observation_parts(observationId)
+            request = SearchRequest.model_validate(sky.manifest(search_id)["query"])
+            target_ra, target_dec = resolve_pixel_sky_position(request, 512, x, y)
+            fov_arcmin = request.fov_arcmin
+            label = f"Pixel ({x:.2f}, {y:.2f}) of observation {observationId}"
+        else:
+            raise HTTPException(422, "Provide ra and dec, or observationId with x and y.")
+
+        samples, fingerprint_warnings = build_fingerprint(sky, target_ra, target_dec, fov_arcmin)
+        return {
+            "samples": [
+                {
+                    "wavelengthMicron": sample["wavelengthMicron"],
+                    "flux": sample["flux"],
+                    "uncertainty": sample["uncertainty"],
+                    "qualityFlags": sample["qualityFlags"],
+                }
+                for sample in samples
+            ],
+            "fluxUnit": samples[0]["bunit"] if samples else "MJy/sr",
+            "extractionMethod": (
+                "Single-pixel real flux read directly from one native FITS cutout per "
+                "available empirical wavelength channel (nearest-pixel, no PSF "
+                "photometry or aperture correction), at the exact requested sky position."
+            ),
+            "sourceLabel": label,
+            "warnings": [
+                *fingerprint_warnings,
+                "This is a single-pixel sample, not PSF-fit or aperture photometry; "
+                "nearby bright or flagged pixels are not corrected for.",
+            ],
+        }
 
     return router
 
