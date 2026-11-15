@@ -44,8 +44,9 @@ the frontend's origin.
 Difference imaging is implemented: `/api/difference` and `/v1`-backed
 `/api/difference.png` resample two observations onto one shared ICRS grid and
 render a zero-centered, red/blue diverging quick-look PNG (to minus from). It is
-not flux-calibrated and applies no PSF matching or background fitting; the
-response's `warnings` state this. The two frames are reordered into true
+a quick-look subtraction that retains calibrated surface-brightness input units,
+with no PSF matching or photometric/background fitting. The response describes
+these limits in its `warnings`. The two frames are reordered into true
 chronological order by their own observation time regardless of which one the
 caller labeled `fromId`/`toId`, with a warning if that required a swap or if
 the two frames came from searches with a different field center or FOV.
@@ -70,40 +71,35 @@ a bright/saturated star are excluded as likely detector overflow rather than
 real flux, and the response's `warnings` say so. At most the 8 most
 significant candidates are returned per request.
 
-Channel mode is implemented: `mode=channel&index=1-102` groups a detector's
-real exposures by their own measured central wavelength (SPHEREx's linear
-variable filter means wavelength at a given sky position differs between
-exposures) into 17 empirical groups per detector (6 x 17 = 102). There is no
-published per-pixel channel-boundary table to bin against, so this groups real
-data by measured wavelength rather than claiming an exact official channel.
+Channel selection uses the bundled official 102-channel calibration windows.
+`mode=channel&index=1-102` chooses the associated detector, inspects the actual
+FITS spectral WCS at the requested position, and includes exposures whose center
+wavelength falls within that window. Preview pixels outside the window are masked.
+This quick-look selection uses approximate spectral WCS. Empty coverage is shown
+explicitly. [IRSA spectral calibrations](https://irsa.ipac.caltech.edu/Missions/spherex.html)
 
-Exposure combination is implemented: `/api/combine?ids=...` mean-combines
-every given real exposure onto one shared grid, reducing per-pixel noise by
-roughly the square root of the exposure count -- the "add together all the
-data taken by each detector array" the challenge suggests. It is a simple
-pixel-mean coadd with no PSF matching or outlier rejection, and warns when the
-combined exposures use different detectors.
+Exposure combination is implemented through `/api/combine?ids=...`. It averages
+aligned real exposures using streaming sums and valid-pixel counts, keeping pixels
+covered by at least half the distinct inputs. This is an unweighted mean with
+quality-bit masking available through the API. Warnings describe mixed detector
+bands, variable wavelength, and blurring of moving sources. The UI combines the
+currently displayed epochs.
 
-Spectral extraction (the "extra kudos" on-the-fly spectrum) is implemented:
-clicking a point calls `/api/spectrum`, which samples one real exposure per
-empirical wavelength channel across all 6 detectors and reads the real flux
-at that exact pixel from each one -- never a modeled or simulated value. Each
-sample reports its own measured wavelength, calibrated flux, 1-sigma
-uncertainty from the archive's own variance plane, and quality flags. This is
-a single-pixel sample (nearest-pixel, no PSF photometry or aperture
-correction), and the response says so. Sampling across 6 detectors means
-dozens of real downloads in one request; individual transient archive errors
-are skipped rather than failing the whole fingerprint, and requests are
-paced to stay under IRSA's cutout-service burst limit. Verified live:
-WISE 0855 at its challenge coordinates returns 36 real measured points
-spanning 0.76-5.0 micron.
+Clicking an image or a candidate requests `/api/spectrum`. Brian's six-detector
+extraction is retained, with up to six temporally distributed samples per detector.
+Each point includes its actual native-pixel wavelength, surface brightness,
+variance-derived uncertainty, quality flags, and observation date. Invalid and
+artifact-flagged pixels are skipped. The plot shows individual samples with error
+bars and hover details. Coverage depends on the available exposures, and dates
+can differ across samples. PSF-fit photometry and complete 102-channel spectra
+remain future work.
 
 Wavelength can vary between exposures within one detector. Use the
 wavelength metadata from the `/v1` API when assessing motion or variability.
 
 Search snapshots and FITS files are stored under `backend/data` and are ignored by
 Git. The Python environment and generated frontend build are also ignored. The
-frontend source, styling, and assets are retained from the supplied version.
+frontend retains the team’s navigation and components with an integrated charcoal-and-gold visual system.
 
 ## Validation
 
@@ -121,3 +117,16 @@ The opt-in live check writes results under `backend/data/reports`.
 
 Detailed archive access and processing information is available in
 [the backend README](backend/README.md) and [the build plan](backend/BUILD_PLAN.md).
+
+## Integrated branch review
+
+Reviewed `main`, `brian-branch-rq`, `rafael`, and `feature/frontend` on November 14,
+2026. Main already included Brian's channel/coadd/spectrum work and Rafael's
+navigator redesign. The older frontend branch contains the original frontend on
+an unrelated Git history. Its components are represented in the integrated app.
+
+The final integration restores coordinate controls, 1/30/180-day epoch spacing,
+change captions and arrows, and on-demand wavelength/quality metadata. It connects
+the 3D navigator to the archive search and protects asynchronous comparison results
+against changes of field, epoch selection, and display mode. See
+[the requirements review](REQUIREMENTS_REVIEW.md) for scientific and hosting limits.

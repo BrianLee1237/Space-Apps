@@ -208,30 +208,27 @@ reported. This is a best-effort statistical screen, calibrated empirically
 against this project's own guided targets, not a validated discovery
 pipeline.
 
-`mode=channel` on `/api/observations` groups a detector's real exposures by
-their own recorded bandpass (`spectral.wavelength_sorted_groups`, sorted by
-the midpoint of each frame's archive-reported `detector_wavelength_min/max_um`
--- already returned by the search itself, no download needed) into 17
-empirical groups (6 detectors x 17 = 102 nominal channels); there is no
-published per-pixel channel-boundary table, so the grouping is formed from
-whatever real data is actually available, not a fixed SPHEREx channel table.
-`/api/combine` mean-combines several given exposures onto one shared grid
-(`imaging.combine_registered`/`combine_png`), keeping only pixels covered by
-at least half of them, and warns when the combined exposures span different
-detectors.
+`mode=channel` on `/api/observations` uses the official calibration windows in
+`channels.json`. A bounded two-worker inspection reads the FITS spectral WCS at the
+requested position. Frames qualify by their center wavelength, and PNG rendering
+masks pixels outside the chosen window. Detector-wide SIA wavelength bounds cannot
+identify the wavelength at an individual sky position. Unavailable cutouts produce
+partial-coverage warnings. An entirely failed retrieval returns an archive error.
 
-`/api/spectrum` (`spectrum.py`) implements the Spectrum tab's on-the-fly
-fingerprint: for a sky position (from `ra`/`dec`, or `observationId` plus
-fractional `x`/`y` resolved back through the same output grid the preview PNG
-uses), it searches all 6 detectors, groups each one's exposures the same way
-channel mode does (6 empirical channels per detector by default -- lower
-than channel mode's 17, since sampling every detector in one request already
-means dozens of real downloads), and for each group reads the real flux,
-variance-derived uncertainty, and decoded quality flags at that exact pixel
-from one native FITS cutout (`point_sample`). Downloads are paced and
-individual transient archive errors are skipped rather than failing the
-whole fingerprint, since a request this size will occasionally hit one.
+`/api/metadata?observationId=...` returns decoded center flags, center wavelength,
+bandwidth, and PSF FWHM after the FITS cutout is inspected. Older cached metadata
+are refreshed using the metadata schema version.
 
-The frontend's unavailable-state handling no longer applies to any of the
-five proposed `/api` routes in `FRONTEND_HANDOFF.md`: candidates, difference,
-overlays, and spectrum are all implemented against real data.
+`/api/combine` averages distinct input exposures on the first input's shared grid.
+`imaging.combine_registered` streams sums and valid-pixel counts, requiring the
+ceiling of half the input count for retained pixels. Warnings describe differing
+fields, detectors, spectral sampling, and the limits of an unweighted mean.
+
+`/api/spectrum` accepts either `ra`/`dec` or an `observationId` with fractional
+`x`/`y`. Pixel selection is inverted through the preview's common WCS. The service
+searches all six detectors and samples up to six temporal groups per detector.
+Native-pixel flux, variance-derived uncertainty, measured wavelength, decoded
+quality flags, and observation date are returned. Artifact-flagged pixels are
+skipped. Downloads are paced and transient failures are counted in warnings.
+This sparse, multi-epoch surface-brightness fingerprint requires further photometric
+and spectral-response treatment for quantitative source analysis.

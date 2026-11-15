@@ -44,8 +44,8 @@ thresholds.
 | --- | --- |
 | Latest releases | Configurable DR1/QR3 collections, cached search snapshots and refresh through the API. |
 | 102 channels | All 102 calibrated wavelength windows are selectable. Frames are filtered by center wavelength and pixels outside the chosen window are masked. These quick-look windows differ from geometric channel-map assignments and full mosaics. |
-| Six-detector coadds | Detector selection works. Combining observations into validated weighted coadds remains pending. |
-| Spectral fingerprint | Clicking an image samples up to 16 exposures in that detector sequence. Native 3×3-pixel mean surface brightness, variance-derived uncertainties, zodiacal subtraction, wavelength, and dates are returned. Full-band, PSF-corrected source spectra remain pending. |
+| Six-detector coadds | Aligned unweighted mean coadds work for distinct observations. Streaming accumulation and half-coverage masking are implemented. PSF matching, outlier rejection, and inverse-variance weighting remain pending. |
+| Spectral fingerprint | Brian’s extraction samples up to six temporal groups per detector across all six detectors. Each native-pixel measurement includes wavelength, uncertainty, flags, and date. The scatter plot shows uncertainty bars and hover details. Complete channel coverage and PSF-corrected source spectra remain pending. |
 | Subtraction | Common-grid differences and residual detection work. PSF matching, robust photometric/background matching, and full uncertainty propagation remain pending. |
 | Field of view | Continuous 0.5–60 arcmin backend coverage and frontend selection. |
 | Gaia DR3 | Catalog overlays with linear proper-motion propagation. Parallax and radial-velocity propagation remain pending. |
@@ -60,3 +60,24 @@ windows are used with each cutout's approximate spectral WCS for display filteri
 IRSA documents the spectral WCS lookup as suitable for visualization. Quantitative
 analysis should use the high-fidelity wavelength calibration and appropriate
 spectral-response and PSF treatment. [SPHEREx data products](https://caltech-ipac.github.io/spherex-archive-documentation/spherex-data-products/)
+
+## Integration verification
+
+All five guided targets returned real detector-6 observations and valid PNGs from
+both endpoints of their available time range during this integration. Counts were
+59 for Barnard’s Star, 96 for Epsilon Indi B, 45 for WISE 0855, 56 for RW Aurigae,
+and 91 for R Draconis. These counts describe cached archive searches at the test
+time and can change as the archive grows.
+
+WISE 0855 also returned two captioned residual candidates, working coadd and
+difference PNGs, and 36 dated spectral measurements spanning approximately
+0.762–4.968 µm. One transient cutout failure was skipped and reported in the
+spectrum warnings. Channel 101 returned five exposures within its calibrated
+4.9304–4.9724 µm window.
+
+The integration passed 21 backend tests, Python lint, and the production frontend
+build. Browser checks passed coordinate entry, URL loading, epoch filtering,
+caption placement, playback, difference rendering, coadd rendering, metadata,
+mobile overflow checks, and invalidation of a delayed comparison after changing
+its selected pair. No browser runtime errors were recorded. Frontend lint reports
+six advisory warnings about Fast Refresh exports and state updates in effects.

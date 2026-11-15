@@ -45,7 +45,23 @@ export default function SkyViewer({frame,differenceUrl,combineUrl,status,error,c
       <div className="sky-image-layer" style={{transform:`scale(${zoom})`}}>
         <div className="sky-image-content">
           <img ref={image} src={imageSrc!} className="sky-image" alt={differenceUrl?'Difference image produced by the backend':combineUrl?'Combined exposure produced by the backend':'SPHEREx observation returned by the backend'} onError={()=>setImageFailed(true)} onClick={pick} draggable={false} style={{filter:`brightness(${brightness}%) contrast(${contrast}%) ${inverted?'invert(1)':''}`}}/>
-          {!overlayUrl&&candidates.filter(c=>c.xFraction!==undefined&&c.yFraction!==undefined).map(c=><button key={c.id} className="sky-marker candidate-marker" title={c.label||`Unverified candidate ${c.id}`} aria-label={`Inspect unverified candidate ${c.label||c.id}`} type="button" style={{left:`${c.xFraction!*100}%`,top:`${c.yFraction!*100}%`}} onClick={e=>{e.stopPropagation();onCandidate(c)}}/>) }
+          {!combineUrl&&<>          {candidates.length>0&&<svg className="motion-arrows" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><defs><marker id="motion-arrow" markerWidth="4" markerHeight="4" refX="3" refY="2" orient="auto"><path d="M0,0 L4,2 L0,4" fill="#ffcb75"/></marker></defs>{candidates.filter(c=>c.previousXFraction!==undefined).map(c=><line key={c.id} x1={c.previousXFraction!*100} y1={c.previousYFraction!*100} x2={c.xFraction!*100} y2={c.yFraction!*100} stroke="#ffcb75" strokeWidth=".45" markerEnd="url(#motion-arrow)"/>)}</svg>}
+          {candidates.filter(c=>c.xFraction!==undefined&&c.yFraction!==undefined).map((candidate,i)=>{
+            const nearby=candidates.slice(0,i).filter(other=>
+              Math.abs((other.xFraction??0)-candidate.xFraction!)<.4&&
+              Math.abs((other.yFraction??0)-candidate.yFraction!)<.09
+            ).length
+            const captionStyle={top:-30+nearby*32,...(candidate.xFraction!>.55?{right:15,left:'auto'}:{left:15,right:'auto'})}
+            return <button key={candidate.id} className="sky-marker candidate-marker"
+              title={candidate.caption||candidate.notes||candidate.label}
+              aria-label={`Inspect unverified candidate ${candidate.label||candidate.id}`}
+              type="button" style={{left:`${candidate.xFraction!*100}%`,top:`${candidate.yFraction!*100}%`}}
+              onClick={event=>{event.stopPropagation();onCandidate(candidate)}}>
+              <span className="marker-caption" style={captionStyle}>{candidate.label} · {candidate.displacementArcsec?`${candidate.displacementArcsec.toFixed(1)}″ shift`:candidate.brightnessChange!>0?'Positive residual':'Negative residual'}</span>
+            </button>
+          })}
+
+</>}
           {!overlayUrl&&gaia?.sources.filter(s=>s.xFraction>=0&&s.xFraction<=1&&s.yFraction>=0&&s.yFraction<=1).map(s=><span key={s.id} title={s.label||`Gaia DR3 source ${s.id}`} className="sky-marker gaia-marker" style={{left:`${s.xFraction*100}%`,top:`${s.yFraction*100}%`}}/>) }
         </div>
       </div>

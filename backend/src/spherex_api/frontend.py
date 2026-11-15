@@ -2,6 +2,7 @@
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlencode
@@ -14,7 +15,6 @@ from .candidates import detect_candidates
 from .gaia import gaia_overlay
 from .imaging import combine_png, difference_png, preview_png
 from .models import SearchRequest
-from .spectral import CHANNELS_PER_DETECTOR, wavelength_sorted_groups
 from .spectrum import build_fingerprint, resolve_pixel_sky_position
 from .targets import TARGETS
 
@@ -107,40 +107,17 @@ def frontend_router(sky, gaia):
                 }
         raise HTTPException(422, "Choose one of the five guided targets or enter sky coordinates.")
 
-    def build_observation(search_id, frame, limits):
-        identifier = search_id + "." + frame["frame_id"]
-        image_params = urlencode({"pixels": 512, **limits})
-        observation = {
-            "id": identifier,
-            "observedAt": frame["observed_at_utc"],
-            "imageUrl": f"/api/images/{identifier}.png?{image_params}",
-            "release": frame["collection"].removeprefix("spherex_").upper(),
-            "detector": frame["detector"],
-            "imageAligned": True,
-            "width": 512,
-            "height": 512,
-            "fitsUrl": frame["links"]["fits"],
-            "metadataUrl": frame["links"]["metadata"],
+    @router.get("/metadata")
+    def metadata(observationId: str):
+        search_id, frame_id = observation_parts(observationId)
+        _, values = sky.frame(search_id, frame_id)
+        return {
+            "id": observationId,
+            "flags": values.get("center_flag_names", []),
+            "centralWavelengthMicron": values.get("central_wavelength_um"),
+            "bandwidthMicron": values.get("central_bandwidth_um"),
+            "psfFwhmArcsec": values.get("psf_fwhm_arcsec"),
         }
-        exposure = frame["archive_metadata"].get("t_exptime")
-        if exposure is not None:
-            observation["exposureSeconds"] = exposure
-        # Missing flags are omitted until a frame's actual FITS has been inspected.
-        try:
-            metadata = sky.store.read("metadata", frame["frame_id"])
-            observation["flags"] = metadata["center_flag_names"]
-            observation["centralWavelengthMicron"] = metadata["central_wavelength_um"]
-        except KeyError:
-            pass
-        return observation
-
-    def display_limits(search_id, frame):
-        _, metadata = sky.frame(search_id, frame["frame_id"])
-        percentiles = metadata.get("science_percentiles_1_50_99")
-        if not percentiles:
-            return {}
-        low, _, high = percentiles
-        return {"vmin": low, "vmax": high if high > low else low + 1}
 
     @router.get("/observations")
     def observations(
@@ -150,17 +127,13 @@ def frontend_router(sky, gaia):
         mode: Literal["auto", "detector", "channel"] = "auto",
         index: Annotated[int | None, Query(ge=1, le=102)] = None,
     ):
+        if mode == "channel" and index is None:
+            raise HTTPException(422, "Choose a channel between 1 and 102.")
         if mode == "detector" and (index is None or index > 6):
             raise HTTPException(422, "Detector mode requires index between 1 and 6.")
-        if mode == "channel" and index is None:
-            raise HTTPException(422, "Channel mode requires index between 1 and 102.")
-        channel_warnings = []
-        if mode == "channel":
-            detector = (index - 1) // CHANNELS_PER_DETECTOR + 1
-            channel_slot = (index - 1) % CHANNELS_PER_DETECTOR
-        else:
-            # A single detector keeps the initial animation within one detector bandpass.
-            detector = index if mode == "detector" else 6
+        # A single detector keeps the initial animation within one detector bandpass.
+        channel = CHANNELS[index - 1] if mode == "channel" else None
+        detector = channel["detector"] if channel else index if mode == "detector" else 6
         query = SearchRequest(ra=ra, dec=dec, fov_arcmin=fov, detectors=(detector,))
         manifest = sky.search(query)
         if not manifest["complete"]:
@@ -168,47 +141,86 @@ def frontend_router(sky, gaia):
                 422, "The archive truncated this search. Use /v1/search with a narrower time range."
             )
         frames = manifest["frames"]
-        search_id = manifest["search_id"]
+        if channel:
 
-        if mode == "channel" and frames:
-            # SPHEREx's linear variable filter means the detector's recorded
-            # bandpass for a given exposure varies with dither position.
-            # "Channel N" is real data closest to the Nth of those recorded
-            # bandpasses, not a fixed SPHEREx-defined bin -- see
-            # spectral.wavelength_sorted_groups.
-            chunks, wave_min, wave_max = wavelength_sorted_groups(frames)
-            frames = chunks[channel_slot]
-            if wave_min is None:
-                channel_warnings.append(
-                    f"No detector {detector} exposure in this search reported a usable "
-                    "bandpass, so a wavelength could not be measured to form channels."
-                )
-            elif frames:
-                channel_warnings.append(
-                    f"Channel {index} groups detector {detector}'s {len(frames)} real "
-                    "exposure(s) whose own recorded bandpass (range observed for this "
-                    f"search: {wave_min:.3f}-{wave_max:.3f} micron) falls in roughly the "
-                    f"{channel_slot + 1} of {CHANNELS_PER_DETECTOR} wavelength-sorted "
-                    "groups for this detector -- an empirical grouping, not SPHEREx's own "
-                    "fixed channel table."
-                )
-            else:
-                channel_warnings.append(
-                    f"Detector {detector} has fewer real exposures than the "
-                    f"{CHANNELS_PER_DETECTOR} wavelength-sorted channel groups; this "
-                    "particular channel slot has none."
-                )
+            def matches(frame):
+                try:
+                    _, metadata = sky.frame(manifest["search_id"], frame["frame_id"])
+                    wavelength = metadata.get("central_wavelength_um")
+                    return (
+                        wavelength is not None
+                        and channel["WL_MIN"] <= wavelength <= channel["WL_MAX"]
+                    )
+                except ArchiveError:
+                    return None
 
-        limits = display_limits(search_id, frames[0]) if frames else {}
-        result = [build_observation(search_id, frame, limits) for frame in frames]
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                matches_by_frame = list(pool.map(matches, frames))
+                failed_count = matches_by_frame.count(None)
+                if frames and failed_count == len(frames):
+                    raise ArchiveError("Channel cutouts failed retrieval. Retry the search.")
+                frames = [
+                    frame for frame, match in zip(frames, matches_by_frame, strict=True) if match
+                ]
+            manifest = {
+                **manifest,
+                "warnings": [
+                    *manifest["warnings"],
+                    f"Channel {index} window "
+                    f"{channel['WL_MIN']:.4f}–{channel['WL_MAX']:.4f} µm. "
+                    "Pixels outside that approximate spectral-WCS window are transparent.",
+                ],
+            }
+            if failed_count:
+                manifest["warnings"].append(
+                    f"{failed_count} cutouts failed retrieval. This channel sequence is partial."
+                )
+        limits = {}
+        if frames:
+            _, first_metadata = sky.frame(manifest["search_id"], frames[0]["frame_id"])
+            percentiles = first_metadata.get("science_percentiles_1_50_99")
+            if percentiles:
+                low, _, high = percentiles
+                limits = {"vmin": low, "vmax": high if high > low else low + 1}
+        result = []
+        for frame in frames:
+            identifier = manifest["search_id"] + "." + frame["frame_id"]
+            image_params = urlencode(
+                {"pixels": 512, **limits, **({"channel": index} if channel else {})}
+            )
+            observation = {
+                "id": identifier,
+                "observedAt": frame["observed_at_utc"],
+                "imageUrl": f"/api/images/{identifier}.png?{image_params}",
+                "release": frame["collection"].removeprefix("spherex_").upper(),
+                "detector": frame["detector"],
+                "imageAligned": True,
+                "width": 512,
+                "height": 512,
+                "fitsUrl": frame["links"]["fits"],
+                "metadataUrl": frame["links"]["metadata"],
+            }
+            if channel:
+                observation["channel"] = index
+            exposure = frame["archive_metadata"].get("t_exptime")
+            if exposure is not None:
+                observation["exposureSeconds"] = exposure
+            # Missing flags are omitted until a frame's actual FITS has been inspected.
+            try:
+                metadata = sky.store.read("metadata", frame["frame_id"])
+                observation["flags"] = metadata["center_flag_names"]
+                observation["centralWavelengthMicron"] = metadata["central_wavelength_um"]
+            except KeyError:
+                pass
+            result.append(observation)
         return {
             "target": {"raDeg": ra, "decDeg": dec, "fovArcmin": fov},
             "observations": result,
             "dataUpdatedAt": manifest["created_at_utc"],
             "dataRelease": ", ".join(sorted({o["release"] for o in result})),
-            "searchId": search_id,
+            "searchId": manifest["search_id"],
             "selectedDetector": detector,
-            "warnings": [*manifest["warnings"], *channel_warnings],
+            "warnings": manifest["warnings"],
         }
 
     @router.get("/images/{identifier}.png")
@@ -283,13 +295,12 @@ def frontend_router(sky, gaia):
         return Response(png, media_type="image/png", headers=headers)
 
     def resolve_combine_ids(ids):
-        identifiers = [value for value in ids.split(",") if value]
+        identifiers = list(dict.fromkeys(value for value in ids.split(",") if value))
         if len(identifiers) < 2:
-            raise HTTPException(422, "Provide at least two comma-separated observation ids.")
-        parsed = [observation_parts(identifier) for identifier in identifiers]
-        detectors = {
-            sky.frame(search_id, frame_id)[1]["detector"] for search_id, frame_id in parsed
-        }
+            raise HTTPException(422, "Provide at least two distinct observation ids.")
+        entries = [manifest_frame_entry(sky, identifier) for identifier in identifiers]
+        parsed = [(search_id, frame_id) for search_id, frame_id, _ in entries]
+        detectors = {entry["detector"] for _, _, entry in entries}
         warnings = [
             "This is a simple pixel-mean coadd: no PSF matching, cosmic-ray "
             "rejection, or outlier clipping beyond the rejected quality-flag bits.",
@@ -300,6 +311,21 @@ def frontend_router(sky, gaia):
                 "bandpasses; averaging mixes wavelength coverage."
             )
         request = SearchRequest.model_validate(sky.manifest(parsed[0][0])["query"])
+        if any(
+            any(
+                sky.manifest(search_id)["query"][key] != getattr(request, key)
+                for key in ("ra", "dec", "fov_arcmin")
+            )
+            for search_id, _ in parsed[1:]
+        ):
+            warnings.append(
+                "Input fields differ. Output uses the first observation's field "
+                "center and size; overlap may be incomplete."
+            )
+        warnings.append(
+            "Wavelength can vary between exposures even within one detector. "
+            "Moving or variable sources may be blurred by averaging."
+        )
         return identifiers, parsed, request, warnings
 
     @router.get("/combine")
@@ -324,8 +350,8 @@ def frontend_router(sky, gaia):
             "method": (
                 f"Mean-combine of {len(identifiers)} real exposures resampled onto one "
                 "shared ICRS tangent-plane grid (the first observation's own search), "
-                "keeping only pixels covered by at least half of them -- reduces "
-                "per-pixel noise by roughly the square root of the exposure count."
+                "keeping only pixels covered by at least half of them. "
+                "Noise reduction depends on coverage and correlated systematics."
             ),
             "warnings": warnings,
         }
@@ -428,18 +454,20 @@ def frontend_router(sky, gaia):
                     "flux": sample["flux"],
                     "uncertainty": sample["uncertainty"],
                     "qualityFlags": sample["qualityFlags"],
+                    "observedAt": sample.get("observedAt"),
                 }
                 for sample in samples
             ],
             "fluxUnit": samples[0]["bunit"] if samples else "MJy/sr",
             "extractionMethod": (
                 "Single-pixel real flux read directly from one native FITS cutout per "
-                "available empirical wavelength channel (nearest-pixel, no PSF "
+                "available temporal sample across all six detectors (nearest-pixel, no PSF "
                 "photometry or aperture correction), at the exact requested sky position."
             ),
             "sourceLabel": label,
             "warnings": [
                 *fingerprint_warnings,
+                "Samples span observation dates. Both time and wavelength vary.",
                 "This is a single-pixel sample, not PSF-fit or aperture photometry; "
                 "nearby bright or flagged pixels are not corrected for.",
             ],

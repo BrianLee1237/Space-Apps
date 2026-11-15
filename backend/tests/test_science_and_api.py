@@ -410,11 +410,13 @@ def test_gaia_overlay_propagates_motion_and_filters_out_of_field(tmp_path):
     assert bad_catalog.status_code == 422
 
 
-def test_channel_mode_groups_by_measured_wavelength(tmp_path):
-    """Channel mode splits a detector's real exposures by their own wavelength."""
+def test_channel_mode_uses_calibrated_window_at_target(tmp_path):
+    """Detector-wide SIA bounds cannot identify the wavelength at the target."""
+    from spherex_api.frontend import CHANNELS
+
     query = SearchRequest(ra=133.7, dec=-7.2, fov_arcmin=10)
     count = 17
-    waves = [4.0 + i * (1.0 / (count - 1)) for i in range(count)]  # spread evenly over 1 micron
+    waves = [channel["WAVELENGTH"] for channel in CHANNELS[:count]]
     rows = [
         (
             DATA_URL.replace("example", f"example{i}"),
@@ -422,8 +424,8 @@ def test_channel_mode_groups_by_measured_wavelength(tmp_path):
             "SPHEREx-D1",
             "spherex_dr1",
             60900.0 + i,
-            waves[i] * 1e-6,
-            waves[i] * 1e-6,
+            0.75e-6,
+            1.12e-6,
         )
         for i in range(count)
     ]
@@ -451,8 +453,12 @@ def test_channel_mode_groups_by_measured_wavelength(tmp_path):
     assert first.status_code == 200
     first_body = first.json()
     assert first_body["selectedDetector"] == 1
-    assert len(first_body["observations"]) == 1  # 17 real exposures split 17 ways
-    assert any("empirical grouping" in w.lower() for w in first_body["warnings"])
+    assert len(first_body["observations"]) == 1
+    assert any("window" in w.lower() for w in first_body["warnings"])
+    assert first_body["observations"][0]["centralWavelengthMicron"] == pytest.approx(
+        waves[0], abs=0.003
+    )
+    assert "channel=1" in first_body["observations"][0]["imageUrl"]
 
     last = client.get(
         "/api/observations",
@@ -512,6 +518,8 @@ def test_combine_averages_exposures_and_warns_on_detector_mismatch(tmp_path):
 
     too_few = client.get("/api/combine", params={"ids": obs6[0]["id"]})
     assert too_few.status_code == 422
+    duplicate = client.get("/api/combine", params={"ids": ",".join([obs6[0]["id"]] * 2)})
+    assert duplicate.status_code == 422
 
 
 def test_spectrum_extracts_real_flux_per_detector(tmp_path):
@@ -520,8 +528,7 @@ def test_spectrum_extracts_real_flux_per_detector(tmp_path):
     peak = output_wcs(query, 64).pixel_to_world(40, 38)
     detector_waves = {1: 1.2, 3: 2.8, 6: 4.5}
     urls = {
-        detector: DATA_URL.replace("example", f"example-d{detector}")
-        for detector in detector_waves
+        detector: DATA_URL.replace("example", f"example-d{detector}") for detector in detector_waves
     }
     rows = [
         (
@@ -572,6 +579,24 @@ def test_spectrum_extracts_real_flux_per_detector(tmp_path):
     assert any("covered this exact sky position" in w.lower() for w in far_body["warnings"])
 
     assert client.get("/api/spectrum").status_code == 422
+
+
+def test_coadd_requires_ceiling_half_coverage(monkeypatch):
+    from spherex_api import imaging
+
+    arrays = [np.ones((2, 2)) * value for value in range(5)]
+    for array in arrays[2:]:
+        array[0, 0] = np.nan
+    for array in arrays[3:]:
+        array[0, 1] = np.nan
+    monkeypatch.setattr(imaging, "registered_image", lambda path, *args: arrays[path])
+    query = SearchRequest(ra=1, dec=0)
+    combined, counts = imaging.combine_registered(list(range(5)), query, pixels=2)
+    assert counts[0, 0] == 2
+    assert np.isnan(combined[0, 0])
+    assert counts[0, 1] == 3
+    assert combined[0, 1] == pytest.approx(1)
+    assert combined[1, 1] == pytest.approx(2)
 
 
 def test_failed_download_is_not_committed(tmp_path):
@@ -642,7 +667,8 @@ def test_unchanged_frontend_contract(tmp_path):
     )
     assert far_channel.status_code == 200
     assert far_channel.json()["observations"] == []
-    assert client.get(
-        "/api/observations", params={"ra": 1, "dec": 0, "mode": "channel"}
-    ).status_code == 422
+    assert (
+        client.get("/api/observations", params={"ra": 1, "dec": 0, "mode": "channel"}).status_code
+        == 422
+    )
     assert SearchRequest(ra=0, dec=0, fov_arcmin=60).fov_arcmin == 60

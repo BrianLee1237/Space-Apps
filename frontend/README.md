@@ -30,6 +30,23 @@ The globe contains only a mathematical J2000 coordinate grid. It does not genera
 - `src/components/CelestialNavigator.tsx`: standalone, dependency-free WebGL sphere and surface-to-coordinate conversion.
 - `src/pages/Explorer.tsx`: controls navigator mode and delegates searching to the existing `loadObservations` flow.
 - `src/celestial-theme.css`: mission-control visual identity, loaded after the main app CSS.
-- `src/services/api.ts`: unchanged FastAPI client.
+- `src/observatory.css`: responsive charcoal-and-gold finishing layer, loaded after the team theme.
+- `src/services/api.ts`: FastAPI client, including on-demand frame metadata.
 
 No additional npm dependencies are needed for the navigator.
+
+## Time and change controls
+
+The default sequence selects observations at least 30 days apart. The toolbar also
+supports every exposure, one-day, and 180-day spacing. The timeline shows the real
+date and elapsed days. Playback speed controls the on-screen frame duration.
+
+**Highlight changes** compares the pair selected in Compare, initially the first
+and last displayed epochs. Numbered rings, residual captions, and possible-motion
+arrows appear over the comparison's later observation. Selecting a marker opens
+its explanation and a real six-detector spectral request. Candidate annotations
+are hidden on other epochs and combined images.
+
+The UI combines displayed epochs through Brian's coadd endpoint. Spectrum samples
+show error bars and individual observation dates on hover. Metadata includes
+wavelength, bandwidth, PSF FWHM, and decoded quality flags when available.

@@ -26,6 +26,7 @@ export default function Inspector({view,frame,frames,selection,spectrum,spectrum
     <div className="inspector-header">
       {view==='explorer'?<div className="inspector-tabs"><button className={explorerTab==='details'?'active':''} type="button" onClick={()=>setExplorerTab('details')}>Object details</button><button type="button" className={explorerTab==='metadata'?'active':''} onClick={()=>setExplorerTab('metadata')}>Metadata</button></div>:<h2>{currentTitle}</h2>}
     </div>
+    {candidate&&<section className="change-explanation" aria-live="polite"><strong>{candidate.label} · {candidate.classification==='moving-source'?'Possible motion':'Possible brightness change'}</strong><p>{candidate.caption||candidate.notes}</p>{candidate.earlierAt&&<small>{new Date(candidate.earlierAt).toLocaleDateString()} → {new Date(candidate.laterAt!).toLocaleDateString()} · {candidate.elapsedDays?.toFixed(1)} days</small>}</section>}
     {view==='guide'&&<Guide onSelect={onGuideTarget} loading={guideBusy}/>}
     {view==='notebook'&&<Notebook items={notes} target={target} frames={frames} candidate={candidate} onSave={onSaveNote} onDelete={onDeleteNote}/>}
     {view==='compare'&&<section className="inspector-body">
@@ -50,7 +51,7 @@ export default function Inspector({view,frame,frames,selection,spectrum,spectrum
         {discovery.method&&<p className="control-hint">Method: {discovery.method}</p>}
         {discovery.candidates.length===0&&<p className="empty-text">No candidates returned.</p>}
         {discovery.candidates.map(c=><button type="button" className="candidate-row" key={c.id} onClick={()=>onCandidate(c)}>
-          <span className="candidate-icon"><Crosshair size={16}/></span><span><strong>{c.label||`Candidate ${c.id}`}</strong><small>RA {c.raDeg.toFixed(5)}°, Dec {c.decDeg.toFixed(5)}°</small>{c.classification&&<small>{c.classification} · Unverified</small>}</span>
+          <span className="candidate-icon"><Crosshair size={16}/></span><span><strong>{c.label||`Candidate ${c.id}`}</strong><small>RA {c.raDeg.toFixed(5)}°, Dec {c.decDeg.toFixed(5)}°</small>{c.classification&&<small>{c.classification} · Unverified</small>}{c.caption&&<small className="candidate-description">{c.caption}</small>}</span>
         </button>)}
         {discovery.warnings?.map((s,i)=><p className="quality-warning" key={i}><AlertCircle size={14}/>{s}</p>)}
       </>}
@@ -68,6 +69,9 @@ export default function Inspector({view,frame,frames,selection,spectrum,spectrum
         {frame.release&&<div><dt>Release</dt><dd>{frame.release}</dd></div>}
         {frame.detector&&<div><dt>Detector</dt><dd>{frame.detector}</dd></div>}
         {frame.channel&&<div><dt>Channel</dt><dd>{frame.channel}</dd></div>}
+        {frame.centralWavelengthMicron!=null&&<div><dt>Center wavelength</dt><dd>{frame.centralWavelengthMicron.toFixed(4)} µm</dd></div>}
+        {frame.bandwidthMicron!=null&&<div><dt>Bandwidth</dt><dd>{frame.bandwidthMicron.toFixed(4)} µm</dd></div>}
+        {frame.psfFwhmArcsec!=null&&<div><dt>PSF FWHM</dt><dd>{frame.psfFwhmArcsec.toFixed(2)} arcsec</dd></div>}
         {frame.exposureSeconds!==undefined&&<div><dt>Exposure</dt><dd>{frame.exposureSeconds} seconds</dd></div>}
         {frame.flags?.length? <div><dt>Quality flags</dt><dd>{frame.flags.join(', ')}</dd></div>:null}
       </dl>}
@@ -82,7 +86,7 @@ export default function Inspector({view,frame,frames,selection,spectrum,spectrum
       </div>}
       <div className="panel-divider"/>
       <div className="panel-section-title"><Layers size={15}/>Combine exposures</div>
-      <p className="control-hint">Mean-combine every loaded real exposure to boost signal-to-noise. Averaging {frames.length} exposure{frames.length===1?'':'s'} reduces per-pixel noise by roughly {frames.length>1?`${Math.sqrt(frames.length).toFixed(1)}×`:'1×'}.</p>
+      <p className="control-hint">Average the {frames.length} displayed epochs on a shared sky grid. Noise improvement depends on coverage and systematics. Moving sources can blur.</p>
       <button className="secondary-button full-button" type="button" disabled={frames.length<2||combineBusy} onClick={onGenerateCombine}><Layers size={16}/>{combineBusy?'Combining…':`Combine ${frames.length} exposures`}</button>
       {combine&&<div className="result-inline"><strong>Combined image loaded</strong><p>{combine.method||'Backend processing method not supplied.'}</p><button type="button" onClick={onClearCombine}>Return to original image</button></div>}
       {combineError&&<p className="inline-warning" role="alert">{combineError}</p>}{combine?.warnings?.map((s,i)=><p className="quality-warning" key={i}><AlertCircle size={14}/>{s}</p>)}

@@ -1,10 +1,8 @@
 """On-the-fly point-source spectral extraction across real SPHEREx exposures.
 
-For one sky position, finds one real exposure per available empirical
-wavelength channel (the same per-detector grouping channel mode uses, applied
-across every detector) and reads the flux at that exact pixel from each one:
-a genuine multi-epoch, multi-detector spectral fingerprint built entirely
-from real archived pixels. Never a modeled, fit, or simulated value.
+Samples temporally distributed exposures across all six detectors. Each point
+reports its native pixel's wavelength and observation date. Wavelength coverage
+depends on the archive and the linear variable filter placement.
 """
 
 import re
@@ -17,9 +15,10 @@ from astropy.io import fits
 from astropy.wcs import WCS
 
 from .archive import ArchiveError
+from .candidates import DEFAULT_CANDIDATE_REJECT_BITS
 from .imaging import finite_float, output_wcs, spatial_wcs
 from .models import SearchRequest
-from .spectral import wavelength_sorted_groups
+from .spectral import temporal_sample_groups
 
 DETECTORS = (1, 2, 3, 4, 5, 6)
 
@@ -65,6 +64,8 @@ def point_sample(path, ra, dec):
         uncertainty = float(np.sqrt(var)) if var is not None and var > 0 else None
         flag_header = hdus["FLAGS"].header
         center_flags = int(flags[yi, xi])
+        if center_flags & DEFAULT_CANDIDATE_REJECT_BITS:
+            return None
         flag_names = []
         for keyword in flag_header:
             match = re.fullmatch(r"MSKN(\d{4})", keyword)
@@ -93,15 +94,12 @@ def point_sample(path, ra, dec):
 
 def build_fingerprint(sky, ra, dec, fov_arcmin, channels_per_detector=6):
     """Build a real spectral fingerprint at (ra, dec) from every detector's
-    own available exposures, one representative real sample per empirical
-    wavelength channel. Returns (samples, warnings).
+    own available exposures, one representative real sample per temporal
+    group. Returns (samples, warnings).
 
-    ``channels_per_detector`` defaults well below spectral.CHANNELS_PER_DETECTOR
-    (17): sampling across all 6 detectors in one request can mean dozens of
-    real cutout downloads, and IRSA's cutout service rate-limits a burst of
-    that size even though each individual download succeeds fine on its own.
-    6 per detector (36 total) still gives a real, recognizable fingerprint
-    while staying well clear of that limit.
+    ``channels_per_detector`` is retained for existing Python callers. It limits
+    temporal samples per detector to six by default. These samples can repeat
+    wavelengths and cannot guarantee complete coverage of the 102 channels.
     """
     query = SearchRequest(ra=ra, dec=dec, fov_arcmin=fov_arcmin, detectors=DETECTORS)
     manifest = sky.search(query)
@@ -112,14 +110,14 @@ def build_fingerprint(sky, ra, dec, fov_arcmin, channels_per_detector=6):
     warnings = []
     if not manifest["complete"]:
         warnings.append(
-            "The archive truncated this search; some epochs may be missing from "
-            "this fingerprint."
+            "The archive truncated this search; some epochs may be missing from this fingerprint."
         )
     missing = [d for d in DETECTORS if d not in by_detector]
     if missing:
         warnings.append(
             "No archived exposure was found at this position for detector(s) "
-            + ", ".join(str(d) for d in missing) + "."
+            + ", ".join(str(d) for d in missing)
+            + "."
         )
 
     samples = []
@@ -128,9 +126,7 @@ def build_fingerprint(sky, ra, dec, fov_arcmin, channels_per_detector=6):
         frames = by_detector.get(detector, [])
         if not frames:
             continue
-        chunks, _wave_min, _wave_max = wavelength_sorted_groups(
-            frames, groups=channels_per_detector
-        )
+        chunks = temporal_sample_groups(frames, groups=channels_per_detector)
         for group in chunks:
             found = None
             for frame in group:
@@ -154,6 +150,7 @@ def build_fingerprint(sky, ra, dec, fov_arcmin, channels_per_detector=6):
                     found = sample
                     break
             if found is not None:
+                found["observedAt"] = frame["observed_at_utc"]
                 samples.append(found)
 
     samples.sort(key=lambda s: s["wavelengthMicron"])

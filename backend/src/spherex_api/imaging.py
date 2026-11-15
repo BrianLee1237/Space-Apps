@@ -293,19 +293,30 @@ def combine_registered(
     where one rotated frame barely overlaps isn't reported with the same
     confidence as the well-covered center.
     """
-    stack = np.stack(
-        [registered_image(path, request, pixels, reject_bits, subtract_zodi) for path in paths]
-    )
-    count = np.isfinite(stack).sum(axis=0)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        combined = np.nanmean(stack, axis=0)
-    combined[count < max(1, round(min_fraction * len(paths)))] = np.nan
+    if not paths:
+        raise ValueError("At least one exposure is required")
+    total = np.zeros((pixels, pixels), dtype=float)
+    count = np.zeros((pixels, pixels), dtype=np.uint32)
+    for path in paths:
+        image = registered_image(path, request, pixels, reject_bits, subtract_zodi)
+        valid = np.isfinite(image)
+        total[valid] += image[valid]
+        count[valid] += 1
+    combined = np.full((pixels, pixels), np.nan)
+    np.divide(total, count, out=combined, where=count > 0)
+    required = max(1, int(np.ceil(min_fraction * len(paths))))
+    combined[count < required] = np.nan
     return combined, count
 
 
 def combine_png(
-    paths, request, pixels=512, vmin=None, vmax=None, reject_bits=0, subtract_zodi=False,
+    paths,
+    request,
+    pixels=512,
+    vmin=None,
+    vmax=None,
+    reject_bits=0,
+    subtract_zodi=False,
     min_fraction=0.5,
 ):
     combined, count = combine_registered(

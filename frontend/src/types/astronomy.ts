@@ -18,6 +18,9 @@ export type Observation = {
   release?: string // DR1, QR3, etc.
   detector?: number
   channel?: number
+  centralWavelengthMicron?: number
+  bandwidthMicron?: number
+  psfFwhmArcsec?: number
   flags?: string[] // Only real decoded contamination or quality flags
   exposureSeconds?: number
   width?: number
@@ -41,6 +44,12 @@ export type Candidate = {
   xFraction?: number
   yFraction?: number
   classification?: string
+  caption?: string
+  previousXFraction?: number
+  previousYFraction?: number
+  elapsedDays?: number
+  earlierAt?: string
+  laterAt?: string
   displacementArcsec?: number
   brightnessChange?: number
   method?: string
@@ -65,6 +74,7 @@ export type SpectrumSample = {
   flux: number
   uncertainty?: number
   qualityFlags?: string[]
+  observedAt?: string
 }
 export type SpectrumResponse = {
   samples: SpectrumSample[]

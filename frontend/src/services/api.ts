@@ -83,3 +83,7 @@ export async function getCombine(observationIds:string[],signal?:AbortSignal) {
   if(!data || typeof data.imageUrl!=='string')throw new ApiError('Expected imageUrl from combine service.')
   return data
 }
+
+export async function getObservationMetadata(observationId:string,signal?:AbortSignal) {
+  return request<Partial<Observation>>(`/metadata?${params({observationId})}`,signal)
+}
