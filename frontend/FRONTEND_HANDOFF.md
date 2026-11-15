@@ -31,3 +31,7 @@ All UI files are under `frontend/src/`. Only `src/services/api.ts` contains HTTP
 ## No logo
 
 The header says "SPHEREx Explorer" as plain text. No generated brand mark or NASA logo, and no API connection badge.
+
+## 3D coordinate navigator (frontend-only)
+
+The user can select an equatorial direction by rotating and clicking the rendered WebGL sphere. The frontend computes actual J2000 RA and Dec on the globe surface, updates the same text inputs used by manual search, and requests the existing `/api/observations` endpoint only when the user presses Search/Load. The sphere is a geometric coordinate aid and cannot be treated as an observational all-sky image. No backend endpoint or response type changes are required. The Navigator/Observations switch only changes the center visualization, not the selected frames or scientific data.

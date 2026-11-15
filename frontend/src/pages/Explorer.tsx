@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Sidebar, { parseSkyCoordinates } from '../components/Sidebar'
 import SkyViewer from '../components/SkyViewer'
+import CelestialNavigator from '../components/CelestialNavigator'
 import Timeline from '../components/Timeline'
 import Inspector from '../components/Inspector'
-import { getObservationMetadata,getCandidates,getDifference,getGaiaOverlay,getObservations,getSpectrum,resolveTarget } from '../services/api'
+import { getCandidates,getDifference,getGaiaOverlay,getObservations,getSpectrum,resolveTarget } from '../services/api'
 import type { BandSelection,Candidate,DifferenceResponse,DiscoveryResponse,ImageLocation,Observation,OverlayResponse,SavedFinding,SearchTarget,SpectrumRequest,SpectrumResponse,ViewName } from '../types/astronomy'
 
 type LoadStatus='idle'|'loading'|'ready'|'empty'|'error'
@@ -17,20 +18,13 @@ function readNotes():SavedFinding[] {
 }
 export default function Explorer(){
   const [view,setView]=useState<ViewName>('explorer')
-  const [settingsOpen,setSettingsOpen]=useState(true)
+  const [viewerMode,setViewerMode]=useState<'globe'|'observations'>('globe')
+  const [settingsOpen,setSettingsOpen]=useState(()=>window.innerWidth>=950)
   const [ra,setRa]=useState(''),[dec,setDec]=useState(''),[fov,setFov]=useState(10)
   const [band,setBand]=useState<BandSelection>({mode:'auto'})
   const [target,setTarget]=useState<SearchTarget|null>(null)
   const [status,setStatus]=useState<LoadStatus>('idle'),[loadError,setLoadError]=useState('')
-  const [allFrames,setFrames]=useState<Observation[]>([]),[index,setIndex]=useState(0)
-  const [epochDays,setEpochDays]=useState(30)
-  const frames=useMemo(()=>{
-    if(!epochDays)return allFrames
-    const selected:Observation[]=[]
-    for(const observation of allFrames)if(!selected.length||Date.parse(observation.observedAt)-Date.parse(selected[selected.length-1].observedAt)>=epochDays*86400000)selected.push(observation)
-    return selected
-  },[allFrames,epochDays])
-  useEffect(()=>{setIndex(0);setFrom(0);setTo(Math.max(0,frames.length-1));setPlaying(false);setDiff(null);setDiscovery(null);specSeq.current++;discoverySeq.current++},[frames])
+  const [frames,setFrames]=useState<Observation[]>([]),[index,setIndex]=useState(0)
   const [searchWarnings,setSearchWarnings]=useState<string[]>([])
   const [playing,setPlaying]=useState(false),[speed,setSpeed]=useState(700)
   const [brightness,setBrightness]=useState(100),[contrast,setContrast]=useState(100),[inverted,setInverted]=useState(false)
@@ -43,20 +37,8 @@ export default function Explorer(){
   const [guideBusy,setGuideBusy]=useState(false)
   const [notes,setNotes]=useState<SavedFinding[]>(readNotes)
   const abort=useRef<AbortController|null>(null),seq=useRef(0),specSeq=useRef(0),discoverySeq=useRef(0)
-  const [frameDetails,setFrameDetails]=useState<Partial<Observation>>({})
-  const rawFrame=frames[index]??null
-  const frame=rawFrame?{...rawFrame,...(frameDetails.id===rawFrame.id?frameDetails:{})}:null
-  useEffect(()=>{
-    if(!rawFrame)return
-    const ctrl=new AbortController()
-    void getObservationMetadata(rawFrame.id,ctrl.signal).then(setFrameDetails).catch(()=>{})
-    return()=>ctrl.abort()
-  },[rawFrame?.id])
-  useEffect(()=>{
-    if(!frames.length)return
-    const next=frames[(index+1)%frames.length]
-    const preload=new Image();preload.src=next.imageUrl
-  },[frames,index])
+  const frame=frames[index]??null
+  const selectedCoords=parseSkyCoordinates(ra,dec,fov)
 
   useEffect(()=>{try{localStorage.setItem(NOTES_KEY,JSON.stringify(notes))}catch{/* Private-browsing storage can fail. */}},[notes])
   useEffect(()=>{if(!playing||frames.length<2)return;const handle=window.setInterval(()=>setIndex(i=>(i+1)%frames.length),speed);return()=>window.clearInterval(handle)},[playing,frames.length,speed])
@@ -85,14 +67,14 @@ export default function Explorer(){
 
   async function loadObservations(next:SearchTarget,nextBand:BandSelection=band) {
     abort.current?.abort();const ctrl=new AbortController();abort.current=ctrl;const requestId=++seq.current
-    setTarget(next);setFrames([]);setIndex(0);setPlaying(false);setLoadError('');setStatus('loading');specSeq.current++;discoverySeq.current++;
+    setViewerMode('observations');setTarget(next);setFrames([]);setIndex(0);setPlaying(false);setLoadError('');setStatus('loading');
     setSpectrum(null);setSelection(null);setDiscovery(null);setDiff(null);setGaia(null);setGaiaEnabled(false);setDiscoveryError('');setSpectrumError('');setDiffError('');setSearchWarnings([]);
     setRa(String(next.raDeg));setDec(String(next.decDeg));setFov(next.fovArcmin)
     const url=new URL(window.location.href);url.searchParams.set('ra',String(next.raDeg));url.searchParams.set('dec',String(next.decDeg));url.searchParams.set('fov',String(next.fovArcmin));url.searchParams.set('mode',nextBand.mode)
     if('index' in nextBand)url.searchParams.set('index',String(nextBand.index));else url.searchParams.delete('index')
     window.history.replaceState({},'',url.pathname+url.search+url.hash)
     try{const data=await getObservations(next,nextBand,ctrl.signal);if(ctrl.signal.aborted||seq.current!==requestId)return
-      setFrames(data.observations);setStatus(data.observations.length?'ready':'empty');setTo(Math.max(0,data.observations.length-1));setFrom(0);setSearchWarnings(data.warnings??[])
+      setFrames(data.observations);setStatus(data.observations.length?'ready':'empty');setTo(data.observations.length>1?1:0);setFrom(0);setSearchWarnings(data.warnings??[])
     }catch(e){if(ctrl.signal.aborted||seq.current!==requestId)return;setLoadError(e instanceof Error?e.message:'Unable to load observations.');setStatus('error')}
   }
   function updateBand(next:BandSelection){setBand(next);if(target)void loadObservations(target,next)}
@@ -108,11 +90,11 @@ export default function Explorer(){
     await runSpectrum({observationId:frame.id,xFraction:point.xFraction,yFraction:point.yFraction})
   }
   async function inspectCandidate(candidate:Candidate){setSelection({type:'candidate',candidate});setView('spectrum')
-    await runSpectrum({observationId:frame?.id,raDeg:candidate.raDeg,decDeg:candidate.decDeg})
+    await runSpectrum({raDeg:candidate.raDeg,decDeg:candidate.decDeg})
   }
   async function scan(){if(!target||frames.length<2)return;const requestId=++discoverySeq.current
     setDiscovery(null);setDiscoveryError('');setDiscoveryBusy(true)
-    try{const result=await getCandidates(target,[frames[from],frames[to]]);if(discoverySeq.current!==requestId)return;setDiscovery(result);setIndex(to)}
+    try{const result=await getCandidates(target,frames);if(discoverySeq.current!==requestId)return;setDiscovery(result)}
     catch(e){if(discoverySeq.current!==requestId)return;setDiscoveryError(e instanceof Error?e.message:'Candidate scan unavailable.')}
     finally{if(discoverySeq.current===requestId)setDiscoveryBusy(false)}
   }
@@ -136,16 +118,20 @@ export default function Explorer(){
   }
   return <div className="app-shell">
     <Navbar view={view} onView={setView} settingsOpen={settingsOpen} onToggleSettings={()=>setSettingsOpen(v=>!v)}/>
-    <div className="epoch-toolbar">
-      <button className="search-open" onClick={()=>setSettingsOpen(true)}>Search by RA / Dec</button>
-      <label>Time separation <select aria-label="Minimum epoch separation" value={epochDays} onChange={e=>setEpochDays(Number(e.target.value))}><option value={0}>All exposures</option><option value={1}>At least 1 day</option><option value={30}>At least 30 days</option><option value={180}>At least 180 days</option></select></label>
-      <button disabled={frames.length<2||discoveryBusy} onClick={()=>{setView('discover');void scan()}}>{discoveryBusy?'Analysing…':'Highlight changes'}</button>
-      <span>{frames.length} epochs · {allFrames.length} exposures</span>
-    </div>
     <div className={`workspace ${settingsOpen?'workspace-with-settings':'workspace-no-settings'}`}>
-      {settingsOpen&&<Sidebar ra={ra} dec={dec} onRa={setRa} onDec={setDec} fov={fov} onFov={updateFov} band={band} onBand={updateBand} gaia={gaiaEnabled} onGaia={setGaiaEnabled} hasFrames={!!frame} gaiaWarnings={gaia?.warnings} brightness={brightness} onBrightness={setBrightness} contrast={contrast} onContrast={setContrast} inverted={inverted} onInvert={setInverted} loading={status==='loading'} error={status==='error'?loadError:''} onSearch={t=>{setView('explorer');if(window.innerWidth<950)setSettingsOpen(false);void loadObservations(t)}} onClose={()=>setSettingsOpen(false)}/>}
-      <div className="viewer-workspace"><SkyViewer frame={frame} differenceUrl={diff?.imageUrl} status={status} error={loadError} candidates={discovery?.candidates??[]} gaia={gaia} brightness={brightness} contrast={contrast} inverted={inverted} onInspect={p=>void inspect(p)} onCandidate={c=>void inspectCandidate(c)}/>
-        {loadError&&status==='ready'&&<div className="overlay-error" role="alert"><AlertTriangle size={15}/>{loadError}<button type="button" onClick={()=>setLoadError('')} aria-label="Dismiss error">×</button></div>}
+      {settingsOpen&&<Sidebar ra={ra} dec={dec} onRa={setRa} onDec={setDec} fov={fov} onFov={updateFov} band={band} onBand={updateBand} gaia={gaiaEnabled} onGaia={setGaiaEnabled} hasFrames={!!frame} gaiaWarnings={gaia?.warnings} brightness={brightness} onBrightness={setBrightness} contrast={contrast} onContrast={setContrast} inverted={inverted} onInvert={setInverted} loading={status==='loading'} error={status==='error'?loadError:''} onSearch={t=>{setView('explorer');void loadObservations(t)}} onClose={()=>setSettingsOpen(false)}/>}
+      <div className="viewer-workspace">
+        <div className="viewer-mode-header">
+          <div className="viewer-mode-title"><strong>{viewerMode==='globe'?'Celestial navigator':'SPHEREx observations'}</strong><small>{viewerMode==='globe'?'3D J2000 coordinate reference':'Real archive images only'}</small></div>
+          <div className="viewer-mode-buttons" role="group" aria-label="Viewer mode">
+            <button type="button" className={viewerMode==='globe'?'mode-active':''} aria-pressed={viewerMode==='globe'} onClick={()=>setViewerMode('globe')}>Navigator</button>
+            <button type="button" className={viewerMode==='observations'?'mode-active':''} aria-pressed={viewerMode==='observations'} onClick={()=>setViewerMode('observations')}>Observations{frames.length?` · ${frames.length}`:''}</button>
+          </div>
+        </div>
+        <div className="viewer-mode-content">
+          {viewerMode==='globe'?<CelestialNavigator selectedRa={selectedCoords?.raDeg??null} selectedDec={selectedCoords?.decDeg??null} fovArcmin={fov} loading={status==='loading'} onPick={(nextRa,nextDec)=>{setRa(nextRa.toFixed(6));setDec(nextDec.toFixed(6));setView('explorer')}} onSearch={()=>{if(selectedCoords){setView('explorer');void loadObservations(selectedCoords)}}}/>:<SkyViewer frame={frame} differenceUrl={diff?.imageUrl} status={status} error={loadError} candidates={discovery?.candidates??[]} gaia={gaia} brightness={brightness} contrast={contrast} inverted={inverted} onInspect={p=>void inspect(p)} onCandidate={c=>void inspectCandidate(c)}/>}
+          {loadError&&status==='ready'&&<div className="overlay-error" role="alert"><AlertTriangle size={15}/>{loadError}<button type="button" onClick={()=>setLoadError('')} aria-label="Dismiss error">×</button></div>}
+        </div>
       </div>
       <Inspector view={view} frame={frame} frames={frames} selection={selection} spectrum={spectrum} spectrumBusy={spectrumBusy} spectrumError={spectrumError} discovery={discovery} discoveryBusy={discoveryBusy} discoveryError={discoveryError} onScan={()=>void scan()} onCandidate={c=>void inspectCandidate(c)} diff={diff} diffBusy={diffBusy} diffError={diffError} compareFrom={from} compareTo={to} onFrom={setFrom} onTo={setTo} onGenerateDifference={()=>void compare()} onClearDifference={()=>setDiff(null)} target={target} notes={notes} onSaveNote={saveNote} onDeleteNote={id=>setNotes(v=>v.filter(item=>item.id!==id))} onGuideTarget={name=>void guidedSearch(name)} guideBusy={guideBusy} searchWarnings={searchWarnings}/>
       <Timeline frames={frames} index={index} onIndex={changeIndex} playing={playing} onPlaying={setPlaying} speed={speed} onSpeed={setSpeed}/>
