@@ -110,6 +110,23 @@ export type SavedFinding = {
   target: SearchTarget
   candidate?: Candidate
   selectedObservationId?: string
-  observations: Array<Pick<Observation,'id'|'observedAt'|'release'|'flags'>>
+  observations: Array<Pick<Observation,'id'|'observedAt'|'release'|'flags'> & Partial<Pick<Observation,'imageUrl'|'detector'|'centralWavelengthMicron'>>>
+  motionSummary?: MotionTrack['summary']
+  analysisWarnings?: string[]
 }
-export type ViewName = 'explorer' | 'discover' | 'spectrum' | 'compare' | 'notebook' | 'guide'
+
+export type MatchedPair = {
+  fromId: string; toId: string; earlierAt: string; laterAt: string; elapsedDays: number; detector: number
+  wavelengthMicron: number; wavelengthDifferencePercent: number; hasQualityFlags: boolean
+}
+export type MatchResponse = {pairs:MatchedPair[];inspected:number;warnings:string[];method:string}
+export type MotionPoint = {
+  observationId:string;observedAt:string;xFraction:number;yFraction:number;raDeg:number;decDeg:number;peakSnr:number;wavelengthMicron:number
+}
+export type MotionTrack = {
+  measurements:MotionPoint[]
+  summary:{baselineDays:number;apparentShiftArcsec:number;apparentRateArcsecPerYear:number|null;observationsMeasured:number}|null
+  warnings:string[];method:string
+}
+
+export type ViewName = 'explorer' | 'motion' | 'discover' | 'spectrum' | 'compare' | 'notebook' | 'guide'

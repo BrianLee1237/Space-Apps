@@ -98,7 +98,10 @@ def create_app(settings: Settings | None = None, service=None, gaia=None):
             "candidate_detection": True,
             "channel_mode": True,
             "exposure_combination": True,
-            "calibrated_spectrum_extraction": True,
+            "calibrated_spectrum_extraction": False,
+            "quicklook_spectrum_sampling": True,
+            "wavelength_matched_pairs": True,
+            "image_centroid_tracking": True,
         }
 
     @app.get("/v1/targets")

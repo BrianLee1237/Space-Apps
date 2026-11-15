@@ -92,15 +92,70 @@ def point_sample(path, ra, dec):
         }
 
 
-def build_fingerprint(sky, ra, dec, fov_arcmin, channels_per_detector=6):
-    """Build a real spectral fingerprint at (ra, dec) from every detector's
-    own available exposures, one representative real sample per temporal
-    group. Returns (samples, warnings).
+def cached_point_samples(sky, manifest, ra, dec, max_frames=24):
+    """Measure available native FITS already cached for this exact search.
+
+    This path is read-only and does not call IRSA. It is intentionally a partial
+    fingerprint, often from one detector. Never label it full SPHEREx coverage.
+    """
+    available = []
+    for frame in manifest.get("frames", []):
+        frame_id = frame.get("frame_id", "")
+        try:
+            path = sky.store.path("cutouts", frame_id, ".fits")
+        except (KeyError, ValueError):
+            continue
+        if path.is_file():
+            available.append((frame, path))
+    if len(available) > max_frames:
+        # Spread picks over time rather than collecting only the earliest frames.
+        picks = [round(i * (len(available) - 1) / (max_frames - 1)) for i in range(max_frames)]
+        available = [available[i] for i in picks]
+
+    samples = []
+    unreadable = 0
+    for frame, path in available:
+        try:
+            sample = point_sample(path, ra, dec)
+        except (OSError, KeyError, ValueError):
+            unreadable += 1
+            continue
+        if sample is None:
+            continue  # Position outside this footprint, invalid pixel, or rejected flags.
+        samples.append({**sample, "observedAt": frame["observed_at_utc"]})
+    samples.sort(key=lambda v: v["wavelengthMicron"])
+    warnings = [
+        "Using locally cached, real FITS exposures only. This is a partial "
+        "wavelength sample, not an all-detector or calibrated source spectrum.",
+        "These measurements can be from different dates; brightness changes "
+        "may reflect time variability as well as wavelength.",
+    ]
+    if unreadable:
+        warnings.append(f"{unreadable} cached FITS exposure(s) could not be read and were skipped.")
+    if not samples:
+        warnings.append("No valid cached pixels cover this sky position. Try a nearby source or wait for more observations to load.")
+    return samples, warnings
+
+
+def build_fingerprint(sky, ra, dec, fov_arcmin, channels_per_detector=6, existing_manifest=None):
+    """Build a real quick-look fingerprint, preferring available cached FITS.
+
+    Cached snapshots may span only one detector. Without usable cached data,
+    attempt a broader six-detector query. Returns (samples, warnings).
 
     ``channels_per_detector`` is retained for existing Python callers. It limits
     temporal samples per detector to six by default. These samples can repeat
     wavelengths and cannot guarantee complete coverage of the 102 channels.
     """
+    # A user selecting a visible source has already loaded genuine FITS frames.
+    # Reuse those first: triggering a new six-detector SIA search on every click
+    # can provoke IRSA HTTP 502 and concurrent-request HTTP 503 responses.
+    if existing_manifest is not None:
+        # Inspection uses only cached data, even if the selected position is
+        # flagged or outside those cached footprints. Do NOT retry IRSA from
+        # the rapid-click UI; that is what caused 502/503 storms.
+        return cached_point_samples(sky, existing_manifest, ra, dec)
+
     query = SearchRequest(ra=ra, dec=dec, fov_arcmin=fov_arcmin, detectors=DETECTORS)
     manifest = sky.search(query)
     by_detector = {}

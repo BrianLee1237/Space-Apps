@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import { Maximize, Minus, Plus, RotateCcw, ImageOff } from 'lucide-react'
 import { imageURL } from '../services/api'
-import type { Candidate, ImageLocation, Observation, OverlayResponse } from '../types/astronomy'
+import type { Candidate, ImageLocation, MotionTrack, Observation, OverlayResponse } from '../types/astronomy'
 
 type Props = {
-  frame:Observation|null;differenceUrl?:string;combineUrl?:string;status:'idle'|'loading'|'ready'|'empty'|'error';error:string;
+  frame:Observation|null;track:MotionTrack|null;differenceUrl?:string;combineUrl?:string;status:'idle'|'loading'|'ready'|'empty'|'error';error:string;
   candidates:Candidate[];gaia:OverlayResponse|null;brightness:number;contrast:number;inverted:boolean;
   onInspect:(p:ImageLocation)=>void;onCandidate:(c:Candidate)=>void;
 }
-export default function SkyViewer({frame,differenceUrl,combineUrl,status,error,candidates,gaia,brightness,contrast,inverted,onInspect,onCandidate}:Props) {
+export default function SkyViewer({frame,track,differenceUrl,combineUrl,status,error,candidates,gaia,brightness,contrast,inverted,onInspect,onCandidate}:Props) {
   const root=useRef<HTMLDivElement>(null),image=useRef<HTMLImageElement>(null)
   const [zoom,setZoom]=useState(1),[imageFailed,setImageFailed]=useState(false)
   const overlayUrl=differenceUrl||combineUrl
@@ -62,6 +62,13 @@ export default function SkyViewer({frame,differenceUrl,combineUrl,status,error,c
           })}
 
 </>}
+          {!overlayUrl&&track&&track.measurements.length>0&&<svg className="motion-track-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={`Unverified measured positions across ${track.measurements.length} observations`}>
+            {track.measurements.length>1&&<polyline points={track.measurements.map(p=>`${p.xFraction*100},${p.yFraction*100}`).join(' ')} fill="none" stroke="#99d5e3" strokeWidth=".2" strokeDasharray=".6 .45"/>}
+            {track.measurements.map((p,i)=><g key={p.observationId}>
+              <circle cx={p.xFraction*100} cy={p.yFraction*100} r={frame?.id===p.observationId ? 0.9 : 0.45} stroke={frame?.id===p.observationId?'#f1ddac':'#99d5e3'} fill="none" strokeWidth=".22"/>
+              <title>{`Epoch ${i+1}: ${p.observedAt}, RA ${p.raDeg.toFixed(6)}°, Dec ${p.decDeg.toFixed(6)}°`}</title>
+            </g>)}
+          </svg>}
           {!overlayUrl&&gaia?.sources.filter(s=>s.xFraction>=0&&s.xFraction<=1&&s.yFraction>=0&&s.yFraction<=1).map(s=><span key={s.id} title={s.label||`Gaia DR3 source ${s.id}`} className="sky-marker gaia-marker" style={{left:`${s.xFraction*100}%`,top:`${s.yFraction*100}%`}}/>) }
         </div>
       </div>

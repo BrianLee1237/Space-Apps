@@ -12,7 +12,7 @@ from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.wcs import WCS
 from PIL import Image
-from scipy.ndimage import map_coordinates
+from scipy.ndimage import gaussian_filter, map_coordinates
 
 from .archive import ArchiveError
 from .models import SearchRequest
@@ -243,17 +243,54 @@ def preview_png(
     }
 
 
-def difference_image(path_from, path_to, request, pixels, reject_bits=0, subtract_zodi=False):
-    """Resample both cutouts onto one shared grid, then subtract (to minus from).
+def _fwhm(path):
+    """Read the PSF FWHM (arcseconds) from a real FITS header when available."""
+    with fits.open(path, memmap=False) as hdus:
+        value = finite_float(hdus["IMAGE"].header.get("PSF_FWHM"))
+    return value if value and value > 0 else None
 
-    Using the same ``request``/``pixels`` for both calls to ``registered_image``
-    guarantees pixel-for-pixel alignment regardless of each cutout's own
-    detector rotation. A pixel is valid only where both epochs are valid.
+
+def _smooth_masked(image, sigma):
+    """Normalized Gaussian convolution, avoiding artificial zeros at masked edges."""
+    valid = np.isfinite(image)
+    weights = gaussian_filter(valid.astype(float), sigma, mode="constant", cval=0)
+    signal = gaussian_filter(np.where(valid, image, 0.0), sigma, mode="constant", cval=0)
+    out = np.full_like(image, np.nan)
+    np.divide(signal, weights, out=out, where=weights >= 0.85)
+    return out
+
+
+def difference_image(path_from, path_to, request, pixels, reject_bits=0, subtract_zodi=False):
+    """WCS-registered quick-look subtraction with optional PSF homogenization.
+
+    If BOTH input FITS headers supply PSF_FWHM, blur only the sharper image
+    to the broader FWHM. Correct a robust constant background offset, not
+    zero-point/color terms; this is not calibrated difference photometry.
     """
     image_from = registered_image(path_from, request, pixels, reject_bits, subtract_zodi)
     image_to = registered_image(path_to, request, pixels, reject_bits, subtract_zodi)
+    fwhm_a, fwhm_b = _fwhm(path_from), _fwhm(path_to)
+    if fwhm_a and fwhm_b and abs(fwhm_a - fwhm_b) > 0.01:
+        scale_arcsec = request.fov_arcmin * 60 / pixels
+        width = (max(fwhm_a, fwhm_b) ** 2 - min(fwhm_a, fwhm_b) ** 2) ** 0.5
+        sigma_pixels = width / (2.35482 * scale_arcsec)
+        if sigma_pixels >= 0.2:
+            if fwhm_a < fwhm_b:
+                image_from = _smooth_masked(image_from, sigma_pixels)
+            else:
+                image_to = _smooth_masked(image_to, sigma_pixels)
     diff = image_to - image_from
     valid = np.isfinite(diff)
+    if valid.any():
+        # Robust constant sky subtraction. Local structures still require care.
+        sample = diff[valid]
+        baseline = float(np.median(sample))
+        mad = float(np.median(np.abs(sample - baseline)))
+        if mad > 0:
+            retained = sample[np.abs(sample - baseline) <= 3 * 1.4826 * mad]
+            if retained.size > 8:
+                baseline = float(np.median(retained))
+        diff[valid] -= baseline
     return diff, valid
 
 
