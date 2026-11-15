@@ -70,18 +70,36 @@ a bright/saturated star are excluded as likely detector overflow rather than
 real flux, and the response's `warnings` say so. At most the 8 most
 significant candidates are returned per request.
 
-Channel wavelength-window selection now uses the official 102-row calibration
-summary and masks pixels outside the selected window. Clicking an image returns
-measured quick-look spectral samples from up to 16 exposures in the current detector
-sequence. Full-band PSF-corrected source spectra and validated coadds remain pending.
+Channel mode is implemented: `mode=channel&index=1-102` groups a detector's
+real exposures by their own measured central wavelength (SPHEREx's linear
+variable filter means wavelength at a given sky position differs between
+exposures) into 17 empirical groups per detector (6 x 17 = 102). There is no
+published per-pixel channel-boundary table to bin against, so this groups real
+data by measured wavelength rather than claiming an exact official channel.
 
-Use **Search by RA / Dec** for coordinates. Choose a minimum epoch separation in
-the toolbar, then **Highlight changes** for numbered residual markers and explanatory
-captions. The comparison defaults to the first and last displayed epochs. The
-Compare tab selects another pair. The timeline shows actual elapsed days.
+Exposure combination is implemented: `/api/combine?ids=...` mean-combines
+every given real exposure onto one shared grid, reducing per-pixel noise by
+roughly the square root of the exposure count -- the "add together all the
+data taken by each detector array" the challenge suggests. It is a simple
+pixel-mean coadd with no PSF matching or outlier rejection, and warns when the
+combined exposures use different detectors.
 
-See [the requirements review](REQUIREMENTS_REVIEW.md) for the mandatory objectives,
-optional considerations, cadence interpretation, and remaining scientific work.
+Spectral extraction (the "extra kudos" on-the-fly spectrum) is implemented:
+clicking a point calls `/api/spectrum`, which samples one real exposure per
+empirical wavelength channel across all 6 detectors and reads the real flux
+at that exact pixel from each one -- never a modeled or simulated value. Each
+sample reports its own measured wavelength, calibrated flux, 1-sigma
+uncertainty from the archive's own variance plane, and quality flags. This is
+a single-pixel sample (nearest-pixel, no PSF photometry or aperture
+correction), and the response says so. Sampling across 6 detectors means
+dozens of real downloads in one request; individual transient archive errors
+are skipped rather than failing the whole fingerprint, and requests are
+paced to stay under IRSA's cutout-service burst limit. Verified live:
+WISE 0855 at its challenge coordinates returns 36 real measured points
+spanning 0.76-5.0 micron.
+
+Wavelength can vary between exposures within one detector. Use the
+wavelength metadata from the `/v1` API when assessing motion or variability.
 
 Search snapshots and FITS files are stored under `backend/data` and are ignored by
 Git. The Python environment and generated frontend build are also ignored. The

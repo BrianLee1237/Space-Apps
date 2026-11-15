@@ -117,7 +117,12 @@ class ArchiveClient:
         )
 
     def fetch(self, url, params=None) -> bytes:
-        if not self.slots.acquire(timeout=1):
+        # A real cutout download legitimately takes several seconds; a 1-second
+        # wait here made any workload that queues more than archive_concurrency
+        # fetches at once (e.g. channel mode's per-frame wavelength lookups)
+        # spuriously fail while the ahead-of-it downloads were still in flight,
+        # not actually out of capacity.
+        if not self.slots.acquire(timeout=20):
             raise CapacityError("Archive request capacity is busy; try again shortly")
         try:
             for attempt in range(self.settings.retries + 1):

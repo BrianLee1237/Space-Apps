@@ -78,6 +78,12 @@ export type DifferenceResponse = {
   method?: string
   warnings?: string[]
 }
+export type CombineResponse = {
+  imageUrl: string
+  frameCount: number
+  method?: string
+  warnings?: string[]
+}
 export type CatalogSource = {
   id: string
   label?: string

@@ -280,5 +280,55 @@ def difference_png(path_from, path_to, request, pixels=512, reject_bits=0, subtr
     }
 
 
+def combine_registered(
+    paths, request, pixels=512, reject_bits=0, subtract_zodi=False, min_fraction=0.5
+):
+    """Mean-combine several real exposures on one shared output grid.
+
+    Averaging N independent exposures of the same field reduces per-pixel
+    noise roughly as 1/sqrt(N) -- the standard astronomical "coadd" for
+    improving signal-to-noise (the challenge's "add together all the data
+    taken by each detector array"). A pixel is kept only where at least
+    ``min_fraction`` of the given frames actually cover it there, so an edge
+    where one rotated frame barely overlaps isn't reported with the same
+    confidence as the well-covered center.
+    """
+    stack = np.stack(
+        [registered_image(path, request, pixels, reject_bits, subtract_zodi) for path in paths]
+    )
+    count = np.isfinite(stack).sum(axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        combined = np.nanmean(stack, axis=0)
+    combined[count < max(1, round(min_fraction * len(paths)))] = np.nan
+    return combined, count
+
+
+def combine_png(
+    paths, request, pixels=512, vmin=None, vmax=None, reject_bits=0, subtract_zodi=False,
+    min_fraction=0.5,
+):
+    combined, count = combine_registered(
+        paths, request, pixels, reject_bits, subtract_zodi, min_fraction
+    )
+    valid = np.isfinite(combined)
+    if not valid.any():
+        raise ArchiveError("No pixels have enough overlapping coverage to combine")
+    if vmin is None:
+        vmin, vmax = np.percentile(combined[valid], [1, 99.5]).tolist()
+        if vmax <= vmin:
+            vmax = vmin + 1
+    scaled = np.clip((np.nan_to_num(combined, nan=vmin) - vmin) / (vmax - vmin), 0, 1)
+    gray = np.round(asinh_unit_stretch(scaled) * 255).astype(np.uint8)
+    rgba = np.stack([gray, gray, gray, valid.astype(np.uint8) * 255], axis=-1)
+    return encode_rgba_png(rgba), {
+        "X-Combine-Frame-Count": str(len(paths)),
+        "X-Combine-Vmin": str(vmin),
+        "X-Combine-Vmax": str(vmax),
+        "X-Combine-Scale": "asinh-10",
+        "X-Preview-Orientation": "north-up-east-left",
+    }
+
+
 def full_sha256(payload):
     return hashlib.sha256(payload).hexdigest()

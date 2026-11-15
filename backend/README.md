@@ -206,6 +206,32 @@ carrying an implausibly large raw difference (detector overflow near a
 bright/saturated star, not real linear flux) are excluded rather than
 reported. This is a best-effort statistical screen, calibrated empirically
 against this project's own guided targets, not a validated discovery
-pipeline. The frontend's existing unavailable-state handling covers the HTTP
-501 responses for the remaining pending channel binning and spectral
-extraction.
+pipeline.
+
+`mode=channel` on `/api/observations` groups a detector's real exposures by
+their own recorded bandpass (`spectral.wavelength_sorted_groups`, sorted by
+the midpoint of each frame's archive-reported `detector_wavelength_min/max_um`
+-- already returned by the search itself, no download needed) into 17
+empirical groups (6 detectors x 17 = 102 nominal channels); there is no
+published per-pixel channel-boundary table, so the grouping is formed from
+whatever real data is actually available, not a fixed SPHEREx channel table.
+`/api/combine` mean-combines several given exposures onto one shared grid
+(`imaging.combine_registered`/`combine_png`), keeping only pixels covered by
+at least half of them, and warns when the combined exposures span different
+detectors.
+
+`/api/spectrum` (`spectrum.py`) implements the Spectrum tab's on-the-fly
+fingerprint: for a sky position (from `ra`/`dec`, or `observationId` plus
+fractional `x`/`y` resolved back through the same output grid the preview PNG
+uses), it searches all 6 detectors, groups each one's exposures the same way
+channel mode does (6 empirical channels per detector by default -- lower
+than channel mode's 17, since sampling every detector in one request already
+means dozens of real downloads), and for each group reads the real flux,
+variance-derived uncertainty, and decoded quality flags at that exact pixel
+from one native FITS cutout (`point_sample`). Downloads are paced and
+individual transient archive errors are skipped rather than failing the
+whole fingerprint, since a request this size will occasionally hit one.
+
+The frontend's unavailable-state handling no longer applies to any of the
+five proposed `/api` routes in `FRONTEND_HANDOFF.md`: candidates, difference,
+overlays, and spectrum are all implemented against real data.

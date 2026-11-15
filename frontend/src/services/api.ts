@@ -1,5 +1,5 @@
 import type {
-  BandSelection, DiscoveryResponse, DifferenceResponse, Observation,
+  BandSelection, CombineResponse, DiscoveryResponse, DifferenceResponse, Observation,
   ObservationsResponse, OverlayResponse, ResolvedTarget,
   SearchTarget, SpectrumRequest, SpectrumResponse,
 } from '../types/astronomy'
@@ -76,5 +76,10 @@ export async function getDifference(fromId:string,toId:string,signal?:AbortSigna
 export async function getGaiaOverlay(observationId:string,signal?:AbortSignal) {
   const data=await request<OverlayResponse>(`/overlays?${params({observationId,catalog:'gaia-dr3'})}`,signal)
   if(!data || !Array.isArray(data.sources))throw new ApiError('Expected sources[] from Gaia overlay service.')
+  return data
+}
+export async function getCombine(observationIds:string[],signal?:AbortSignal) {
+  const data=await request<CombineResponse>(`/combine?${params({ids:observationIds.join(',')})}`,signal)
+  if(!data || typeof data.imageUrl!=='string')throw new ApiError('Expected imageUrl from combine service.')
   return data
 }
