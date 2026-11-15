@@ -46,7 +46,7 @@ def sia_bytes(status="OK", rows=None):
     return output.getvalue()
 
 
-def mef_bytes(query, rotation_deg=0, detector=6, center_pixel=(40, 38)):
+def mef_bytes(query, rotation_deg=0, detector=6, center_pixel=(40, 38), wave_crval=4.5):
     pixels = 64
     wcs = output_wcs(query, pixels)
     angle = np.deg2rad(rotation_deg)
@@ -57,7 +57,7 @@ def mef_bytes(query, rotation_deg=0, detector=6, center_pixel=(40, 38)):
     header["BUNIT"] = "MJy/sr"
     header["CTYPE1W"] = "WAVE"
     header["CTYPE2W"] = "LINEAR"
-    for axis, value in [(1, 4.5), (2, 0.04)]:
+    for axis, value in [(1, wave_crval), (2, 0.04)]:
         header[f"CUNIT{axis}W"] = "um"
         header[f"CRPIX{axis}W"] = 32.5
         header[f"CRVAL{axis}W"] = value
@@ -407,6 +407,106 @@ def test_gaia_overlay_propagates_motion_and_filters_out_of_field(tmp_path):
     assert bad_catalog.status_code == 422
 
 
+def test_channel_mode_groups_by_measured_wavelength(tmp_path):
+    """Channel mode splits a detector's real exposures by their own wavelength."""
+    query = SearchRequest(ra=133.7, dec=-7.2, fov_arcmin=10)
+    count = 17
+    rows = [
+        (
+            DATA_URL.replace("example", f"example{i}"),
+            f"obs-{i}",
+            "SPHEREx-D1",
+            "spherex_dr1",
+            60900.0 + i,
+        )
+        for i in range(count)
+    ]
+    urls = {row[0]: i for i, row in enumerate(rows)}
+
+    def upstream(request):
+        if request.url.path == "/SIA":
+            return httpx.Response(200, content=sia_bytes(rows=rows))
+        url = str(request.url)
+        for data_url, i in urls.items():
+            if url.startswith(data_url):
+                wave = 4.0 + i * (1.0 / (count - 1))  # spread evenly over 1 micron
+                return httpx.Response(200, content=mef_bytes(query, detector=1, wave_crval=wave))
+        raise AssertionError("unexpected URL " + url)
+
+    settings = Settings(data_dir=tmp_path)
+    service = SkyService(settings, ArchiveClient(settings, httpx.MockTransport(upstream)))
+    client = TestClient(create_app(settings, service=service))
+
+    first = client.get(
+        "/api/observations",
+        params={"ra": 133.7, "dec": -7.2, "fov": 10, "mode": "channel", "index": 1},
+    )
+    assert first.status_code == 200
+    first_body = first.json()
+    assert first_body["selectedDetector"] == 1
+    assert len(first_body["observations"]) == 1  # 17 real exposures split 17 ways
+    assert any("empirical grouping" in w.lower() for w in first_body["warnings"])
+
+    last = client.get(
+        "/api/observations",
+        params={"ra": 133.7, "dec": -7.2, "fov": 10, "mode": "channel", "index": 17},
+    )
+    last_body = last.json()
+    assert len(last_body["observations"]) == 1
+    # The lowest-wavelength channel and the highest-wavelength channel must be
+    # different real exposures, not the same one repeated.
+    assert first_body["observations"][0]["id"] != last_body["observations"][0]["id"]
+
+    missing_index = client.get(
+        "/api/observations", params={"ra": 133.7, "dec": -7.2, "fov": 10, "mode": "channel"}
+    )
+    assert missing_index.status_code == 422
+
+
+def test_combine_averages_exposures_and_warns_on_detector_mismatch(tmp_path):
+    """Combining real exposures reduces to an honest coadd, with a mismatch warning."""
+    query = SearchRequest(ra=133.7, dec=-7.2, fov_arcmin=10)
+    second_url = DATA_URL.replace("example", "example2")
+    rows = [
+        (DATA_URL, "obs-a", "SPHEREx-D6", "spherex_dr1", 60900.0),
+        (second_url, "obs-b", "SPHEREx-D5", "spherex_dr1", 60901.0),
+    ]
+
+    def upstream(request):
+        if request.url.path == "/SIA":
+            return httpx.Response(200, content=sia_bytes(rows=rows))
+        if str(request.url).startswith(second_url):
+            return httpx.Response(200, content=mef_bytes(query, detector=5))
+        return httpx.Response(200, content=mef_bytes(query, detector=6))
+
+    settings = Settings(data_dir=tmp_path)
+    service = SkyService(settings, ArchiveClient(settings, httpx.MockTransport(upstream)))
+    client = TestClient(create_app(settings, service=service))
+
+    obs6 = client.get(
+        "/api/observations",
+        params={"ra": 133.7, "dec": -7.2, "fov": 10, "mode": "detector", "index": 6},
+    ).json()["observations"]
+    obs5 = client.get(
+        "/api/observations",
+        params={"ra": 133.7, "dec": -7.2, "fov": 10, "mode": "detector", "index": 5},
+    ).json()["observations"]
+    ids = obs6[0]["id"] + "," + obs5[0]["id"]
+
+    response = client.get("/api/combine", params={"ids": ids, "pixels": 64})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["frameCount"] == 2
+    assert any("different detectors" in w.lower() for w in body["warnings"])
+
+    png = client.get(body["imageUrl"])
+    assert png.status_code == 200
+    assert Image.open(io.BytesIO(png.content)).size == (64, 64)
+
+    too_few = client.get("/api/combine", params={"ids": obs6[0]["id"]})
+    assert too_few.status_code == 422
+
+
 def test_failed_download_is_not_committed(tmp_path):
     settings = Settings(data_dir=tmp_path)
 
@@ -468,10 +568,15 @@ def test_unchanged_frontend_contract(tmp_path):
         {"ra": "nan", "dec": 0},
     ]:
         assert client.get("/api/observations", params=params).status_code == 422
-    assert (
-        client.get(
-            "/api/observations", params={"ra": 1, "dec": 0, "mode": "channel", "index": 102}
-        ).status_code
-        == 501
+    # ra=1,dec=0 is outside the synthetic frame's footprint, so no exposure's
+    # wavelength can be measured there: channel mode degrades to an honest
+    # empty result instead of fabricating channel data.
+    far_channel = client.get(
+        "/api/observations", params={"ra": 1, "dec": 0, "mode": "channel", "index": 102}
     )
+    assert far_channel.status_code == 200
+    assert far_channel.json()["observations"] == []
+    assert client.get(
+        "/api/observations", params={"ra": 1, "dec": 0, "mode": "channel"}
+    ).status_code == 422
     assert SearchRequest(ra=0, dec=0, fov_arcmin=60).fov_arcmin == 60

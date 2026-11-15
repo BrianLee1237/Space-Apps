@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { AlertCircle, ArrowRightLeft, Crosshair, FileText, Radar, Sparkles } from 'lucide-react'
-import type { Candidate, DifferenceResponse, DiscoveryResponse, ImageLocation, Observation,
+import { AlertCircle, ArrowRightLeft, Crosshair, FileText, Layers, Radar, Sparkles } from 'lucide-react'
+import type { Candidate, CombineResponse, DifferenceResponse, DiscoveryResponse, ImageLocation, Observation,
   SavedFinding, SearchTarget, SpectrumResponse, ViewName } from '../types/astronomy'
 import SpectrumPlot from './SpectrumPlot'
 import Notebook from './Notebook'
@@ -10,11 +10,13 @@ type Selection={type:'image';point:ImageLocation}|{type:'candidate';candidate:Ca
 export default function Inspector({view,frame,frames,selection,spectrum,spectrumBusy,spectrumError,
   discovery,discoveryBusy,discoveryError,onScan,onCandidate,
   diff,diffBusy,diffError,compareFrom,compareTo,onFrom,onTo,onGenerateDifference,onClearDifference,
+  combine,combineBusy,combineError,onGenerateCombine,onClearCombine,
   target,notes,onSaveNote,onDeleteNote,onGuideTarget,guideBusy,searchWarnings}:{
     view:ViewName;frame:Observation|null;frames:Observation[];selection:Selection;
     spectrum:SpectrumResponse|null;spectrumBusy:boolean;spectrumError:string;
     discovery:DiscoveryResponse|null;discoveryBusy:boolean;discoveryError:string;onScan:()=>void;onCandidate:(c:Candidate)=>void;
     diff:DifferenceResponse|null;diffBusy:boolean;diffError:string;compareFrom:number;compareTo:number;onFrom:(n:number)=>void;onTo:(n:number)=>void;onGenerateDifference:()=>void;onClearDifference:()=>void;
+    combine:CombineResponse|null;combineBusy:boolean;combineError:string;onGenerateCombine:()=>void;onClearCombine:()=>void;
     target:SearchTarget|null;notes:SavedFinding[];onSaveNote:(note:string)=>void;onDeleteNote:(id:string)=>void;onGuideTarget:(name:string)=>void;guideBusy:boolean;searchWarnings?:string[];
   }) {
   const [explorerTab,setExplorerTab]=useState<'details'|'metadata'>('details')
@@ -78,6 +80,13 @@ export default function Inspector({view,frame,frames,selection,spectrum,spectrum
         <strong>{candidate?.label|| (candidate?'Unverified candidate':'Image selection')}</strong>
         {candidate?<><span>RA {candidate.raDeg.toFixed(6)}°</span><span>Dec {candidate.decDeg.toFixed(6)}°</span><span>Unverified candidate</span></>:<span>Image point {Math.round((selection.type==='image'?selection.point.xFraction:0)*100)}%, {Math.round((selection.type==='image'?selection.point.yFraction:0)*100)}%</span>}
       </div>}
+      <div className="panel-divider"/>
+      <div className="panel-section-title"><Layers size={15}/>Combine exposures</div>
+      <p className="control-hint">Mean-combine every loaded real exposure to boost signal-to-noise. Averaging {frames.length} exposure{frames.length===1?'':'s'} reduces per-pixel noise by roughly {frames.length>1?`${Math.sqrt(frames.length).toFixed(1)}×`:'1×'}.</p>
+      <button className="secondary-button full-button" type="button" disabled={frames.length<2||combineBusy} onClick={onGenerateCombine}><Layers size={16}/>{combineBusy?'Combining…':`Combine ${frames.length} exposures`}</button>
+      {combine&&<div className="result-inline"><strong>Combined image loaded</strong><p>{combine.method||'Backend processing method not supplied.'}</p><button type="button" onClick={onClearCombine}>Return to original image</button></div>}
+      {combineError&&<p className="inline-warning" role="alert">{combineError}</p>}{combine?.warnings?.map((s,i)=><p className="quality-warning" key={i}><AlertCircle size={14}/>{s}</p>)}
+      {frames.length<2&&<p className="empty-text">At least two real observations are required.</p>}
       <div className="panel-divider"/>
       <div className="panel-section-title"><Sparkles size={15}/>Spectral fingerprint</div>
       {spectrumBusy?<p className="empty-text">Loading spectrum…</p>:spectrum?<><SpectrumPlot data={spectrum}/><small className="control-hint">{spectrum.samples.length} measured points · {spectrum.fluxUnit}</small></>:<div className="quiet-panel"><strong>No spectrum available</strong><span>Choose a source to request its spectrum.</span></div>}

@@ -5,8 +5,8 @@ import Sidebar, { parseSkyCoordinates } from '../components/Sidebar'
 import SkyViewer from '../components/SkyViewer'
 import Timeline from '../components/Timeline'
 import Inspector from '../components/Inspector'
-import { getCandidates,getDifference,getGaiaOverlay,getObservations,getSpectrum,resolveTarget } from '../services/api'
-import type { BandSelection,Candidate,DifferenceResponse,DiscoveryResponse,ImageLocation,Observation,OverlayResponse,SavedFinding,SearchTarget,SpectrumRequest,SpectrumResponse,ViewName } from '../types/astronomy'
+import { getCandidates,getCombine,getDifference,getGaiaOverlay,getObservations,getSpectrum,resolveTarget } from '../services/api'
+import type { BandSelection,Candidate,CombineResponse,DifferenceResponse,DiscoveryResponse,ImageLocation,Observation,OverlayResponse,SavedFinding,SearchTarget,SpectrumRequest,SpectrumResponse,ViewName } from '../types/astronomy'
 
 type LoadStatus='idle'|'loading'|'ready'|'empty'|'error'
 type Selection={type:'image';point:ImageLocation}|{type:'candidate';candidate:Candidate}|null
@@ -31,6 +31,7 @@ export default function Explorer(){
   const [spectrum,setSpectrum]=useState<SpectrumResponse|null>(null),[spectrumBusy,setSpectrumBusy]=useState(false),[spectrumError,setSpectrumError]=useState('')
   const [discovery,setDiscovery]=useState<DiscoveryResponse|null>(null),[discoveryBusy,setDiscoveryBusy]=useState(false),[discoveryError,setDiscoveryError]=useState('')
   const [diff,setDiff]=useState<DifferenceResponse|null>(null),[diffBusy,setDiffBusy]=useState(false),[diffError,setDiffError]=useState('')
+  const [combine,setCombine]=useState<CombineResponse|null>(null),[combineBusy,setCombineBusy]=useState(false),[combineError,setCombineError]=useState('')
   const [from,setFrom]=useState(0),[to,setTo]=useState(1)
   const [guideBusy,setGuideBusy]=useState(false)
   const [notes,setNotes]=useState<SavedFinding[]>(readNotes)
@@ -65,7 +66,7 @@ export default function Explorer(){
   async function loadObservations(next:SearchTarget,nextBand:BandSelection=band) {
     abort.current?.abort();const ctrl=new AbortController();abort.current=ctrl;const requestId=++seq.current
     setTarget(next);setFrames([]);setIndex(0);setPlaying(false);setLoadError('');setStatus('loading');
-    setSpectrum(null);setSelection(null);setDiscovery(null);setDiff(null);setGaia(null);setGaiaEnabled(false);setDiscoveryError('');setSpectrumError('');setDiffError('');setSearchWarnings([]);
+    setSpectrum(null);setSelection(null);setDiscovery(null);setDiff(null);setCombine(null);setGaia(null);setGaiaEnabled(false);setDiscoveryError('');setSpectrumError('');setDiffError('');setCombineError('');setSearchWarnings([]);
     setRa(String(next.raDeg));setDec(String(next.decDeg));setFov(next.fovArcmin)
     const url=new URL(window.location.href);url.searchParams.set('ra',String(next.raDeg));url.searchParams.set('dec',String(next.decDeg));url.searchParams.set('fov',String(next.fovArcmin));url.searchParams.set('mode',nextBand.mode)
     if('index' in nextBand)url.searchParams.set('index',String(nextBand.index));else url.searchParams.delete('index')
@@ -76,7 +77,7 @@ export default function Explorer(){
   }
   function updateBand(next:BandSelection){setBand(next);if(target)void loadObservations(target,next)}
   function updateFov(next:number){setFov(next);if(target)void loadObservations({...target,fovArcmin:next})}
-  function changeIndex(i:number){setIndex(i);setPlaying(false);setDiff(null);setSpectrum(null);setSelection(null)}
+  function changeIndex(i:number){setIndex(i);setPlaying(false);setDiff(null);setCombine(null);setSpectrum(null);setSelection(null)}
   async function runSpectrum(request:SpectrumRequest){const requestId=++specSeq.current
     setSpectrum(null);setSpectrumError('');setSpectrumBusy(true)
     try{const result=await getSpectrum(request);if(specSeq.current!==requestId)return;setSpectrum(result)}
@@ -95,10 +96,15 @@ export default function Explorer(){
     catch(e){if(discoverySeq.current!==requestId)return;setDiscoveryError(e instanceof Error?e.message:'Candidate scan unavailable.')}
     finally{if(discoverySeq.current===requestId)setDiscoveryBusy(false)}
   }
-  async function compare(){if(frames.length<2||from===to)return;setDiff(null);setDiffError('');setDiffBusy(true);setPlaying(false)
+  async function compare(){if(frames.length<2||from===to)return;setDiff(null);setCombine(null);setDiffError('');setDiffBusy(true);setPlaying(false)
     try{setDiff(await getDifference(frames[from].id,frames[to].id))}
     catch(e){setDiffError(e instanceof Error?e.message:'Unable to generate difference image.')}
     finally{setDiffBusy(false)}
+  }
+  async function combineStack(){if(frames.length<2)return;setCombine(null);setDiff(null);setCombineError('');setCombineBusy(true);setPlaying(false)
+    try{setCombine(await getCombine(frames.map(f=>f.id)))}
+    catch(e){setCombineError(e instanceof Error?e.message:'Unable to combine exposures.')}
+    finally{setCombineBusy(false)}
   }
   async function guidedSearch(name:string){setGuideBusy(true);setLoadError('')
     try{
@@ -117,10 +123,10 @@ export default function Explorer(){
     <Navbar view={view} onView={setView} settingsOpen={settingsOpen} onToggleSettings={()=>setSettingsOpen(v=>!v)}/>
     <div className={`workspace ${settingsOpen?'workspace-with-settings':'workspace-no-settings'}`}>
       {settingsOpen&&<Sidebar ra={ra} dec={dec} onRa={setRa} onDec={setDec} fov={fov} onFov={updateFov} band={band} onBand={updateBand} gaia={gaiaEnabled} onGaia={setGaiaEnabled} hasFrames={!!frame} gaiaWarnings={gaia?.warnings} brightness={brightness} onBrightness={setBrightness} contrast={contrast} onContrast={setContrast} inverted={inverted} onInvert={setInverted} loading={status==='loading'} error={status==='error'?loadError:''} onSearch={t=>{setView('explorer');void loadObservations(t)}} onClose={()=>setSettingsOpen(false)}/>}
-      <div className="viewer-workspace"><SkyViewer frame={frame} differenceUrl={diff?.imageUrl} status={status} error={loadError} candidates={discovery?.candidates??[]} gaia={gaia} brightness={brightness} contrast={contrast} inverted={inverted} onInspect={p=>void inspect(p)} onCandidate={c=>void inspectCandidate(c)}/>
+      <div className="viewer-workspace"><SkyViewer frame={frame} differenceUrl={diff?.imageUrl} combineUrl={combine?.imageUrl} status={status} error={loadError} candidates={discovery?.candidates??[]} gaia={gaia} brightness={brightness} contrast={contrast} inverted={inverted} onInspect={p=>void inspect(p)} onCandidate={c=>void inspectCandidate(c)}/>
         {loadError&&status==='ready'&&<div className="overlay-error" role="alert"><AlertTriangle size={15}/>{loadError}<button type="button" onClick={()=>setLoadError('')} aria-label="Dismiss error">×</button></div>}
       </div>
-      <Inspector view={view} frame={frame} frames={frames} selection={selection} spectrum={spectrum} spectrumBusy={spectrumBusy} spectrumError={spectrumError} discovery={discovery} discoveryBusy={discoveryBusy} discoveryError={discoveryError} onScan={()=>void scan()} onCandidate={c=>void inspectCandidate(c)} diff={diff} diffBusy={diffBusy} diffError={diffError} compareFrom={from} compareTo={to} onFrom={setFrom} onTo={setTo} onGenerateDifference={()=>void compare()} onClearDifference={()=>setDiff(null)} target={target} notes={notes} onSaveNote={saveNote} onDeleteNote={id=>setNotes(v=>v.filter(item=>item.id!==id))} onGuideTarget={name=>void guidedSearch(name)} guideBusy={guideBusy} searchWarnings={searchWarnings}/>
+      <Inspector view={view} frame={frame} frames={frames} selection={selection} spectrum={spectrum} spectrumBusy={spectrumBusy} spectrumError={spectrumError} discovery={discovery} discoveryBusy={discoveryBusy} discoveryError={discoveryError} onScan={()=>void scan()} onCandidate={c=>void inspectCandidate(c)} diff={diff} diffBusy={diffBusy} diffError={diffError} compareFrom={from} compareTo={to} onFrom={setFrom} onTo={setTo} onGenerateDifference={()=>void compare()} onClearDifference={()=>setDiff(null)} combine={combine} combineBusy={combineBusy} combineError={combineError} onGenerateCombine={()=>void combineStack()} onClearCombine={()=>setCombine(null)} target={target} notes={notes} onSaveNote={saveNote} onDeleteNote={id=>setNotes(v=>v.filter(item=>item.id!==id))} onGuideTarget={name=>void guidedSearch(name)} guideBusy={guideBusy} searchWarnings={searchWarnings}/>
       <Timeline frames={frames} index={index} onIndex={changeIndex} playing={playing} onPlaying={setPlaying} speed={speed} onSpeed={setSpeed}/>
     </div>
   </div>

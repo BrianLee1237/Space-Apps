@@ -70,11 +70,24 @@ a bright/saturated star are excluded as likely detector overflow rather than
 real flux, and the response's `warnings` say so. At most the 8 most
 significant candidates are returned per request.
 
-Channel-binned sequences and spectral extraction remain pending scientific
-implementation. Their routes return HTTP 501, which the existing frontend
-displays as unavailable. Wavelength can vary between exposures within one
-detector. Use the wavelength metadata from the `/v1` API when assessing
-motion or variability.
+Channel mode is implemented: `mode=channel&index=1-102` groups a detector's
+real exposures by their own measured central wavelength (SPHEREx's linear
+variable filter means wavelength at a given sky position differs between
+exposures) into 17 empirical groups per detector (6 x 17 = 102). There is no
+published per-pixel channel-boundary table to bin against, so this groups real
+data by measured wavelength rather than claiming an exact official channel.
+
+Exposure combination is implemented: `/api/combine?ids=...` mean-combines
+every given real exposure onto one shared grid, reducing per-pixel noise by
+roughly the square root of the exposure count -- the "add together all the
+data taken by each detector array" the challenge suggests. It is a simple
+pixel-mean coadd with no PSF matching or outlier rejection, and warns when the
+combined exposures use different detectors.
+
+Spectral extraction remains pending scientific implementation; `/api/spectrum`
+returns HTTP 501, which the existing frontend displays as unavailable.
+Wavelength can vary between exposures within one detector. Use the wavelength
+metadata from the `/v1` API when assessing motion or variability.
 
 Search snapshots and FITS files are stored under `backend/data` and are ignored by
 Git. The Python environment and generated frontend build are also ignored. The

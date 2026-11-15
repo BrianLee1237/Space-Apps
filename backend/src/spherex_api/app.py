@@ -96,6 +96,8 @@ def create_app(settings: Settings | None = None, service=None, gaia=None):
             "science_difference_imaging": True,
             "gaia_dr3_overlay": True,
             "candidate_detection": True,
+            "channel_mode": True,
+            "exposure_combination": True,
             "calibrated_spectrum_extraction": False,
         }
 

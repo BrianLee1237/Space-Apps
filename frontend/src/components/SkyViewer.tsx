@@ -5,18 +5,19 @@ import { imageURL } from '../services/api'
 import type { Candidate, ImageLocation, Observation, OverlayResponse } from '../types/astronomy'
 
 type Props = {
-  frame:Observation|null;differenceUrl?:string;status:'idle'|'loading'|'ready'|'empty'|'error';error:string;
+  frame:Observation|null;differenceUrl?:string;combineUrl?:string;status:'idle'|'loading'|'ready'|'empty'|'error';error:string;
   candidates:Candidate[];gaia:OverlayResponse|null;brightness:number;contrast:number;inverted:boolean;
   onInspect:(p:ImageLocation)=>void;onCandidate:(c:Candidate)=>void;
 }
-export default function SkyViewer({frame,differenceUrl,status,error,candidates,gaia,brightness,contrast,inverted,onInspect,onCandidate}:Props) {
+export default function SkyViewer({frame,differenceUrl,combineUrl,status,error,candidates,gaia,brightness,contrast,inverted,onInspect,onCandidate}:Props) {
   const root=useRef<HTMLDivElement>(null),image=useRef<HTMLImageElement>(null)
   const [zoom,setZoom]=useState(1),[imageFailed,setImageFailed]=useState(false)
-  useEffect(()=>{setZoom(1);setImageFailed(false)},[frame?.id,differenceUrl])
-  const imageSrc=differenceUrl?imageURL(differenceUrl):frame?.imageUrl?imageURL(frame.imageUrl):null
+  const overlayUrl=differenceUrl||combineUrl
+  useEffect(()=>{setZoom(1);setImageFailed(false)},[frame?.id,overlayUrl])
+  const imageSrc=overlayUrl?imageURL(overlayUrl):frame?.imageUrl?imageURL(frame.imageUrl):null
   const show=!!imageSrc && !imageFailed
   function pick(e:MouseEvent<HTMLImageElement>) {
-    if(!frame||differenceUrl||!image.current || !image.current.naturalWidth)return
+    if(!frame||overlayUrl||!image.current || !image.current.naturalWidth)return
     const node=image.current
     const box=node.getBoundingClientRect()
     const nativeRatio=node.naturalWidth/node.naturalHeight, boxRatio=box.width/box.height
@@ -33,7 +34,7 @@ export default function SkyViewer({frame,differenceUrl,status,error,candidates,g
     else await root.current.requestFullscreen()
   }
   return <section className="sky-viewer" ref={root} aria-label="SPHEREx image viewer">
-    {frame&&<div className="viewer-tag"><span>{differenceUrl?'Difference image':'SPHEREx observation'}</span>{!differenceUrl&&<span>{new Date(frame.observedAt).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'})}</span>}</div>}
+    {frame&&<div className="viewer-tag"><span>{differenceUrl?'Difference image':combineUrl?'Combined exposure':'SPHEREx observation'}</span>{!overlayUrl&&<span>{new Date(frame.observedAt).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'})}</span>}</div>}
     <div className="viewer-tools" aria-label="Image zoom controls">
       <button title="Zoom in" aria-label="Zoom in" disabled={!show} type="button" onClick={()=>setZoom(z=>Math.min(5,+(z+.25).toFixed(2)))}><Plus size={17}/></button>
       <button title="Zoom out" aria-label="Zoom out" disabled={!show} type="button" onClick={()=>setZoom(z=>Math.max(1,+(z-.25).toFixed(2)))}><Minus size={17}/></button>
@@ -43,9 +44,9 @@ export default function SkyViewer({frame,differenceUrl,status,error,candidates,g
     {show&&<div className="sky-image-container">
       <div className="sky-image-layer" style={{transform:`scale(${zoom})`}}>
         <div className="sky-image-content">
-          <img ref={image} src={imageSrc!} className="sky-image" alt={differenceUrl?'Difference image produced by the backend':'SPHEREx observation returned by the backend'} onError={()=>setImageFailed(true)} onClick={pick} draggable={false} style={{filter:`brightness(${brightness}%) contrast(${contrast}%) ${inverted?'invert(1)':''}`}}/>
-          {!differenceUrl&&candidates.filter(c=>c.xFraction!==undefined&&c.yFraction!==undefined).map(c=><button key={c.id} className="sky-marker candidate-marker" title={c.label||`Unverified candidate ${c.id}`} aria-label={`Inspect unverified candidate ${c.label||c.id}`} type="button" style={{left:`${c.xFraction!*100}%`,top:`${c.yFraction!*100}%`}} onClick={e=>{e.stopPropagation();onCandidate(c)}}/>) }
-          {!differenceUrl&&gaia?.sources.filter(s=>s.xFraction>=0&&s.xFraction<=1&&s.yFraction>=0&&s.yFraction<=1).map(s=><span key={s.id} title={s.label||`Gaia DR3 source ${s.id}`} className="sky-marker gaia-marker" style={{left:`${s.xFraction*100}%`,top:`${s.yFraction*100}%`}}/>) }
+          <img ref={image} src={imageSrc!} className="sky-image" alt={differenceUrl?'Difference image produced by the backend':combineUrl?'Combined exposure produced by the backend':'SPHEREx observation returned by the backend'} onError={()=>setImageFailed(true)} onClick={pick} draggable={false} style={{filter:`brightness(${brightness}%) contrast(${contrast}%) ${inverted?'invert(1)':''}`}}/>
+          {!overlayUrl&&candidates.filter(c=>c.xFraction!==undefined&&c.yFraction!==undefined).map(c=><button key={c.id} className="sky-marker candidate-marker" title={c.label||`Unverified candidate ${c.id}`} aria-label={`Inspect unverified candidate ${c.label||c.id}`} type="button" style={{left:`${c.xFraction!*100}%`,top:`${c.yFraction!*100}%`}} onClick={e=>{e.stopPropagation();onCandidate(c)}}/>) }
+          {!overlayUrl&&gaia?.sources.filter(s=>s.xFraction>=0&&s.xFraction<=1&&s.yFraction>=0&&s.yFraction<=1).map(s=><span key={s.id} title={s.label||`Gaia DR3 source ${s.id}`} className="sky-marker gaia-marker" style={{left:`${s.xFraction*100}%`,top:`${s.yFraction*100}%`}}/>) }
         </div>
       </div>
     </div>}

@@ -206,6 +206,16 @@ carrying an implausibly large raw difference (detector overflow near a
 bright/saturated star, not real linear flux) are excluded rather than
 reported. This is a best-effort statistical screen, calibrated empirically
 against this project's own guided targets, not a validated discovery
-pipeline. The frontend's existing unavailable-state handling covers the HTTP
-501 responses for the remaining pending channel binning and spectral
-extraction.
+pipeline.
+
+`mode=channel` on `/api/observations` groups a detector's real exposures by
+their own measured central wavelength into 17 empirical groups (6 detectors x
+17 = 102 nominal channels); there is no published per-pixel channel-boundary
+table, so the grouping is formed from whatever real data is actually
+available, not a fixed SPHEREx channel table. `/api/combine` mean-combines
+several given exposures onto one shared grid (`imaging.combine_registered`/
+`combine_png`), keeping only pixels covered by at least half of them, and
+warns when the combined exposures span different detectors.
+
+The frontend's existing unavailable-state handling covers the HTTP 501
+response for the remaining pending spectral extraction.

@@ -1,6 +1,7 @@
 """Compatibility routes for the existing, unchanged React frontend."""
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlencode
@@ -11,9 +12,31 @@ from fastapi.responses import Response
 from .archive import ArchiveError
 from .candidates import detect_candidates
 from .gaia import gaia_overlay
-from .imaging import difference_png, preview_png
+from .imaging import combine_png, difference_png, preview_png
 from .models import SearchRequest
 from .targets import TARGETS
+
+# SPHEREx's mission documentation describes the full focal plane as 102
+# nominal spectral channels; it divides evenly across the 6 detector arrays.
+CHANNELS_PER_DETECTOR = 17
+
+
+def _split_evenly(items, groups):
+    """Split a list into `groups` contiguous chunks of as-equal-as-possible size.
+
+    With fewer items than groups, the first few groups get one item each and
+    the rest are empty -- an honest reflection of limited archive coverage,
+    not a reason to fabricate data to fill every slot.
+    """
+    count = len(items)
+    base, extra = divmod(count, groups)
+    result = []
+    start = 0
+    for index in range(groups):
+        size = base + (1 if index < extra else 0)
+        result.append(items[start : start + size])
+        start += size
+    return result
 
 
 def observation_parts(identifier):
@@ -102,6 +125,41 @@ def frontend_router(sky, gaia):
                 }
         raise HTTPException(422, "Choose one of the five guided targets or enter sky coordinates.")
 
+    def build_observation(search_id, frame, limits):
+        identifier = search_id + "." + frame["frame_id"]
+        image_params = urlencode({"pixels": 512, **limits})
+        observation = {
+            "id": identifier,
+            "observedAt": frame["observed_at_utc"],
+            "imageUrl": f"/api/images/{identifier}.png?{image_params}",
+            "release": frame["collection"].removeprefix("spherex_").upper(),
+            "detector": frame["detector"],
+            "imageAligned": True,
+            "width": 512,
+            "height": 512,
+            "fitsUrl": frame["links"]["fits"],
+            "metadataUrl": frame["links"]["metadata"],
+        }
+        exposure = frame["archive_metadata"].get("t_exptime")
+        if exposure is not None:
+            observation["exposureSeconds"] = exposure
+        # Missing flags are omitted until a frame's actual FITS has been inspected.
+        try:
+            metadata = sky.store.read("metadata", frame["frame_id"])
+            observation["flags"] = metadata["center_flag_names"]
+            observation["centralWavelengthMicron"] = metadata["central_wavelength_um"]
+        except KeyError:
+            pass
+        return observation
+
+    def display_limits(search_id, frame):
+        _, metadata = sky.frame(search_id, frame["frame_id"])
+        percentiles = metadata.get("science_percentiles_1_50_99")
+        if not percentiles:
+            return {}
+        low, _, high = percentiles
+        return {"vmin": low, "vmax": high if high > low else low + 1}
+
     @router.get("/observations")
     def observations(
         ra: Annotated[float, Query(ge=0, lt=360, allow_inf_nan=False)],
@@ -110,12 +168,17 @@ def frontend_router(sky, gaia):
         mode: Literal["auto", "detector", "channel"] = "auto",
         index: Annotated[int | None, Query(ge=1, le=102)] = None,
     ):
-        if mode == "channel":
-            raise HTTPException(501, "Nominal-channel image sequences require spectral binning.")
         if mode == "detector" and (index is None or index > 6):
             raise HTTPException(422, "Detector mode requires index between 1 and 6.")
-        # A single detector keeps the initial animation within one detector bandpass.
-        detector = index if mode == "detector" else 6
+        if mode == "channel" and index is None:
+            raise HTTPException(422, "Channel mode requires index between 1 and 102.")
+        channel_warnings = []
+        if mode == "channel":
+            detector = (index - 1) // CHANNELS_PER_DETECTOR + 1
+            channel_slot = (index - 1) % CHANNELS_PER_DETECTOR
+        else:
+            # A single detector keeps the initial animation within one detector bandpass.
+            detector = index if mode == "detector" else 6
         query = SearchRequest(ra=ra, dec=dec, fov_arcmin=fov, detectors=(detector,))
         manifest = sky.search(query)
         if not manifest["complete"]:
@@ -123,48 +186,61 @@ def frontend_router(sky, gaia):
                 422, "The archive truncated this search. Use /v1/search with a narrower time range."
             )
         frames = manifest["frames"]
-        limits = {}
-        if frames:
-            _, first_metadata = sky.frame(manifest["search_id"], frames[0]["frame_id"])
-            percentiles = first_metadata.get("science_percentiles_1_50_99")
-            if percentiles:
-                low, _, high = percentiles
-                limits = {"vmin": low, "vmax": high if high > low else low + 1}
-        result = []
-        for frame in frames:
-            identifier = manifest["search_id"] + "." + frame["frame_id"]
-            image_params = urlencode({"pixels": 512, **limits})
-            observation = {
-                "id": identifier,
-                "observedAt": frame["observed_at_utc"],
-                "imageUrl": f"/api/images/{identifier}.png?{image_params}",
-                "release": frame["collection"].removeprefix("spherex_").upper(),
-                "detector": frame["detector"],
-                "imageAligned": True,
-                "width": 512,
-                "height": 512,
-                "fitsUrl": frame["links"]["fits"],
-                "metadataUrl": frame["links"]["metadata"],
-            }
-            exposure = frame["archive_metadata"].get("t_exptime")
-            if exposure is not None:
-                observation["exposureSeconds"] = exposure
-            # Missing flags are omitted until a frame's actual FITS has been inspected.
-            try:
-                metadata = sky.store.read("metadata", frame["frame_id"])
-                observation["flags"] = metadata["center_flag_names"]
-                observation["centralWavelengthMicron"] = metadata["central_wavelength_um"]
-            except KeyError:
-                pass
-            result.append(observation)
+        search_id = manifest["search_id"]
+
+        if mode == "channel" and frames:
+            # SPHEREx's linear variable filter means the wavelength at this sky
+            # position differs between exposures of the same detector. There is
+            # no published per-pixel channel-boundary table to bin against, so
+            # channels are formed empirically: every real exposure actually
+            # available for this detector and field, sorted by its own measured
+            # central wavelength and split into CHANNELS_PER_DETECTOR groups of
+            # roughly equal size. "Channel N" is real data closest to the Nth
+            # of those wavelengths, not a fixed SPHEREx-defined bin.
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                wavelengths = list(
+                    pool.map(lambda f: sky.frame(search_id, f["frame_id"])[1], frames)
+                )
+            # The requested center can fall outside a given exposure's own
+            # footprint (edge coverage, detector rotation), in which case its
+            # central wavelength is never measured; such frames can't be
+            # placed in a wavelength-sorted channel.
+            dated = [
+                (frame, meta)
+                for frame, meta in zip(frames, wavelengths, strict=True)
+                if meta.get("central_wavelength_um") is not None
+            ]
+            if dated:
+                ordered = sorted(dated, key=lambda pair: pair[1]["central_wavelength_um"])
+                groups = _split_evenly([pair[0] for pair in ordered], CHANNELS_PER_DETECTOR)
+                frames = groups[channel_slot]
+                waves = [meta["central_wavelength_um"] for _, meta in ordered]
+                channel_warnings.append(
+                    f"Channel {index} groups detector {detector}'s {len(frames)} real "
+                    "exposure(s) whose own measured central wavelength (range observed at "
+                    f"this position: {min(waves):.3f}-{max(waves):.3f} micron) falls in "
+                    f"roughly the {channel_slot + 1} of {CHANNELS_PER_DETECTOR} "
+                    "wavelength-sorted groups for this detector -- an empirical grouping, "
+                    "not SPHEREx's own fixed channel table."
+                )
+            else:
+                frames = []
+                channel_warnings.append(
+                    f"No detector {detector} exposure had the requested sky coordinate "
+                    "inside its own field, so a wavelength could not be measured to form "
+                    "channels."
+                )
+
+        limits = display_limits(search_id, frames[0]) if frames else {}
+        result = [build_observation(search_id, frame, limits) for frame in frames]
         return {
             "target": {"raDeg": ra, "decDeg": dec, "fovArcmin": fov},
             "observations": result,
             "dataUpdatedAt": manifest["created_at_utc"],
             "dataRelease": ", ".join(sorted({o["release"] for o in result})),
-            "searchId": manifest["search_id"],
+            "searchId": search_id,
             "selectedDetector": detector,
-            "warnings": manifest["warnings"],
+            "warnings": [*manifest["warnings"], *channel_warnings],
         }
 
     @router.get("/images/{identifier}.png")
@@ -232,6 +308,66 @@ def frontend_router(sky, gaia):
         )
         if pair_warnings:
             headers = {**headers, "X-Difference-Warning": " | ".join(pair_warnings)}
+        return Response(png, media_type="image/png", headers=headers)
+
+    def resolve_combine_ids(ids):
+        identifiers = [value for value in ids.split(",") if value]
+        if len(identifiers) < 2:
+            raise HTTPException(422, "Provide at least two comma-separated observation ids.")
+        parsed = [observation_parts(identifier) for identifier in identifiers]
+        detectors = {
+            sky.frame(search_id, frame_id)[1]["detector"] for search_id, frame_id in parsed
+        }
+        warnings = [
+            "This is a simple pixel-mean coadd: no PSF matching, cosmic-ray "
+            "rejection, or outlier clipping beyond the rejected quality-flag bits.",
+        ]
+        if len(detectors) > 1:
+            warnings.append(
+                "The combined exposures use different detectors with different "
+                "bandpasses; averaging mixes wavelength coverage."
+            )
+        request = SearchRequest.model_validate(sky.manifest(parsed[0][0])["query"])
+        return identifiers, parsed, request, warnings
+
+    @router.get("/combine")
+    def combine(
+        ids: Annotated[str, Query(min_length=1)],
+        pixels: Annotated[int, Query(ge=32, le=1024)] = 512,
+        reject_bits: Annotated[int, Query(ge=0, le=2**32 - 1)] = 0,
+        subtract_zodi: bool = False,
+    ):
+        identifiers, _, _, warnings = resolve_combine_ids(ids)
+        image_params = urlencode(
+            {
+                "ids": ids,
+                "pixels": pixels,
+                "reject_bits": reject_bits,
+                "subtract_zodi": subtract_zodi,
+            }
+        )
+        return {
+            "imageUrl": f"/api/combine.png?{image_params}",
+            "frameCount": len(identifiers),
+            "method": (
+                f"Mean-combine of {len(identifiers)} real exposures resampled onto one "
+                "shared ICRS tangent-plane grid (the first observation's own search), "
+                "keeping only pixels covered by at least half of them -- reduces "
+                "per-pixel noise by roughly the square root of the exposure count."
+            ),
+            "warnings": warnings,
+        }
+
+    @router.get("/combine.png")
+    def combine_image_route(
+        ids: Annotated[str, Query(min_length=1)],
+        pixels: Annotated[int, Query(ge=32, le=1024)] = 512,
+        reject_bits: Annotated[int, Query(ge=0, le=2**32 - 1)] = 0,
+        subtract_zodi: bool = False,
+    ):
+        _, parsed, request, _ = resolve_combine_ids(ids)
+        paths = [sky.frame(search_id, frame_id)[0] for search_id, frame_id in parsed]
+        png, headers = combine_png(paths, request, pixels, None, None, reject_bits, subtract_zodi)
         return Response(png, media_type="image/png", headers=headers)
 
     @router.get("/overlays")
