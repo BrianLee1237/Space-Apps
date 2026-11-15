@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUpRight, Crosshair, Move, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react'
+import { Crosshair, Move, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react'
 
 type Props = {
   selectedRa: number | null
@@ -21,7 +21,6 @@ type ShaderHandles = {
 }
 type DrawPart = { buffer: WebGLBuffer; count: number; primitive: number; color: [number, number, number, number]; kind: number; size: number }
 
-const TAU = 2 * Math.PI
 const DEG = Math.PI / 180
 const radius = 1.23
 const normalizeRa = (n: number) => ((n % 360) + 360) % 360
@@ -68,16 +67,6 @@ function makeGridLine(kind: 'lat' | 'lon', value: number, subdivisions = 160, r 
     vertices.push(...(kind === 'lat' ? toPoint(t * 360, value, r) : toPoint(value, -90 + 180 * t, r)))
   }
   return vertices
-}
-function orbitRing(r: number, tilt: number, turn: number): number[] {
-  const pts: number[] = []
-  for (let i = 0; i <= 256; i++) {
-    const a = TAU * i / 256
-    const x = r * Math.cos(a), z = r * Math.sin(a)
-    const yy = z * Math.sin(tilt), zz = z * Math.cos(tilt)
-    pts.push(x * Math.cos(turn) + zz * Math.sin(turn), yy, -x * Math.sin(turn) + zz * Math.cos(turn))
-  }
-  return pts
 }
 function createShader(gl: WebGLRenderingContext, type: number, source: string) {
   const shader = gl.createShader(type)
@@ -157,9 +146,6 @@ export default function CelestialNavigator({ selectedRa, selectedDec, fovArcmin,
     createPart(sphereMesh(), gl.TRIANGLES, [0.08, 0.07, 0.06, 1], 0)
     for (let dec = -75; dec <= 75; dec += 15) createPart(makeGridLine('lat', dec), gl.LINE_STRIP, dec === 0 ? [.89, .58, .26, .66] : [.72, .48, .28, .42])
     for (let ra = 0; ra < 360; ra += 15) createPart(makeGridLine('lon', ra), gl.LINE_STRIP, ra === 0 ? [.93, .68, .36, .72] : [.72, .48, .28, .39])
-    createPart(orbitRing(1.48, .18, -.18), gl.LINE_STRIP, [.85, .56, .27, .52])
-    createPart(orbitRing(1.66, -.44, .33), gl.LINE_STRIP, [.75, .49, .25, .24])
-    createPart(orbitRing(1.78, 0.10, .06), gl.LINE_STRIP, [.72, .47, .26, .16])
     const nodes: number[] = []
     for (let dec = -60; dec <= 60; dec += 30) for (let ra = 0; ra < 360; ra += 30) nodes.push(...toPoint(ra, dec, radius + .014))
     createPart(nodes, gl.POINTS, [1, .71, .36, .9], 2, 3)
@@ -267,10 +253,9 @@ export default function CelestialNavigator({ selectedRa, selectedDec, fovArcmin,
   }, [])
   const hasSelection = selectedRa !== null && selectedDec !== null && Number.isFinite(selectedRa) && Number.isFinite(selectedDec)
   return <section className="celestial-navigator" aria-label="Interactive 3D celestial coordinate navigator">
-    <div className="celestial-top-left"><span className="system-caption">CELESTIAL COORDINATES</span><small>RA 0°–360° <span className="nav-separator">/</span> DEC −90° to +90°</small></div>
-    <div className="celestial-top-right"><span className="system-caption">J2000 REFERENCE GRID</span><small>Geometric navigation · no sky data</small></div>
+    <div className="celestial-top-left"><span className="system-caption">Coordinates</span><small>RA 0°–360° <span className="nav-separator">/</span> DEC −90° to +90°</small></div>
+    <div className="celestial-top-right"><span className="system-caption">J2000 / ICRS</span></div>
     <div className="navigator-canvas-wrap">
-      <div className="celestial-ornament" aria-hidden="true"><span className="orbital-ring orbital-ring-one"/><span className="orbital-ring orbital-ring-two"/><span className="orbital-axis"/></div>
       <canvas ref={canvas} className="celestial-canvas" tabIndex={0} aria-label="Rotate with drag or arrow keys. Click or press Enter to choose the visible coordinates on the sphere."/>
       {error && <p className="globe-unavailable">3D view unavailable. You can still enter coordinates in Controls.</p>}
     </div>
@@ -279,10 +264,11 @@ export default function CelestialNavigator({ selectedRa, selectedDec, fovArcmin,
       <button type="button" title="Zoom out" aria-label="Zoom globe out" onClick={() => controls.current?.zoom(.35)}><ZoomOut size={17}/></button>
       <button type="button" title="Reset orientation" aria-label="Reset globe orientation" onClick={() => controls.current?.reset()}><RotateCcw size={16}/></button>
     </div>
-    <div className="celestial-bottom-left"><div className="celestial-hint"><Move size={15}/>Drag to rotate <span>·</span> Click to select</div><div className="celestial-status"><span className="signal-dot"/> COORDINATE GRID ONLY — NOT AN OBSERVATION</div></div>
+    <div className="celestial-bottom-left"><div className="celestial-hint"><Move size={15}/>Drag to rotate <span>·</span> Click to select</div></div>
     <div className="celestial-bottom-right">
-      {hasSelection ? <><span className="system-caption">SELECTED POSITION</span><strong>RA {selectedRa.toFixed(4)}° <span>/</span> DEC {selectedDec.toFixed(4)}°</strong><small>Field of view · {fovArcmin} arcmin</small></> : <><span className="system-caption">NO POSITION SELECTED</span><small>Select any visible point on the sphere</small></>}
-      <button type="button" className="nav-load-button" onClick={onSearch} disabled={!hasSelection || loading}><Crosshair size={16}/>{loading ? 'Loading…' : 'Load SPHEREx data'}<ArrowUpRight size={15}/></button>
+      {hasSelection&&<><span className="system-caption">Selected coordinates</span><strong>RA {selectedRa.toFixed(4)}° <span>/</span> Dec {selectedDec.toFixed(4)}°</strong><small>Field of view · {fovArcmin} arcmin</small>
+        <button type="button" className="nav-load-button" onClick={onSearch} disabled={loading}><Crosshair size={16}/>{loading ? 'Loading…' : 'Load observations'}</button>
+      </>}
     </div>
   </section>
 }

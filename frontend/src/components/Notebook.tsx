@@ -26,7 +26,7 @@ export default function Notebook({items,target,frames,candidate,onSave,onDelete}
 }) {
   const [note,setNote]=useState('')
   return <section className="inspector-body notebook-body">
-    <p className="section-explainer">Save observations and notes locally in this browser. Nothing is submitted to NASA.</p>
+    <p className="section-explainer">Notes are saved in this browser.</p>
     {candidate&&<p className="control-hint">Saving this note with unverified candidate: {candidate.label||candidate.id}</p>}
     <label className="field-label" htmlFor="notebook-note">Observation notes</label>
     <textarea id="notebook-note" className="note-input" value={note} maxLength={3000} onChange={e=>setNote(e.target.value)} placeholder="What did you notice?" rows={4}/>

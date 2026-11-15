@@ -38,14 +38,14 @@ export default function Inspector({view,frame,frames,selection,spectrum,spectrum
         {frames.length===0&&<option value={0}>No data</option>}{frames.map((o,i)=><option value={i} key={o.id}>{new Date(o.observedAt).toLocaleString()}</option>)}
       </select>
       <button className="secondary-button full-button" type="button" disabled={frames.length<2||compareFrom===compareTo||diffBusy} onClick={onGenerateDifference}><ArrowRightLeft size={16}/>{diffBusy?'Processing…':'Generate difference image'}</button>
-      {diff&&<div className="result-inline"><strong>Difference image loaded</strong><p>{diff.method||'Backend processing method not supplied.'}</p><button type="button" onClick={onClearDifference}>Return to original image</button></div>}
-      {diffError&&<p className="inline-warning" role="alert">{diffError}</p>}{diff?.warnings?.map((s,i)=><p className="quality-warning" key={i}><AlertCircle size={14}/>{s}</p>)}
-      {frames.length<2&&<p className="empty-text">At least two real observations are required.</p>}
+      {diff&&<div className="result-inline" role="status"><strong>Difference image ready</strong><button type="button" onClick={onClearDifference}>View original</button><details className="processing-notes"><summary>Processing details{diff.warnings?.length?` (${diff.warnings.length} notes)`:''}</summary><p>{diff.method||'Processing method not supplied.'}</p>{diff.warnings?.map((s,i)=><p className="quality-warning" key={i}><AlertCircle size={14}/>{s}</p>)}</details></div>}
+      {diffError&&<p className="inline-warning" role="alert">{diffError}</p>}
+      {frames.length<2&&<p className="empty-text">Requires two or more observations.</p>}
     </section>}
     {view==='discover'&&<section className="inspector-body">
-      <p className="section-explainer">Flag possible moving or variable sources across real SPHEREx observation epochs. These are not confirmed discoveries.</p>
+      <p className="section-explainer">Look for movement or brightness changes between observations. Results are unverified.</p>
       <button className="secondary-button full-button" type="button" onClick={onScan} disabled={frames.length<2||discoveryBusy}><Radar size={16}/>{discoveryBusy?'Scanning…':'Find candidate changes'}</button>
-      {frames.length<2&&<p className="empty-text">Load at least two observations to run a comparison.</p>}
+      {frames.length<2&&<p className="empty-text">Load at least two observations to compare.</p>}
       {discoveryError&&<p className="inline-warning" role="alert">{discoveryError}</p>}
       {discovery&&<><div className="section-heading-row"><h3>Candidate detections</h3><span>{discovery.candidates.length}</span></div>
         {discovery.method&&<p className="control-hint">Method: {discovery.method}</p>}
@@ -57,8 +57,8 @@ export default function Inspector({view,frame,frames,selection,spectrum,spectrum
       </>}
     </section>}
     {view==='spectrum'&&<section className="inspector-body">
-      <p className="section-explainer">Click a source in an observation or select a discovery candidate to request measured near-infrared flux.</p>
-      <div className="panel-section-title"><Sparkles size={15}/>Spectral measurements</div>
+      <p className="section-explainer">Select a source to view its measured infrared spectrum.</p>
+      <div className="panel-section-title"><Sparkles size={15}/>Measurements</div>
       {spectrumBusy?<p className="empty-text">Loading spectrum…</p>:spectrum?<><SpectrumPlot data={spectrum}/><div className="spectrum-summary"><strong>{spectrum.samples.length} measured points</strong><small>Flux unit: {spectrum.fluxUnit}</small>{spectrum.extractionMethod&&<small>Method: {spectrum.extractionMethod}</small>}</div>{spectrum.warnings?.map((w,i)=><p className="quality-warning" key={i}><AlertCircle size={14}/>{w}</p>)}</>:<p className="empty-text">No spectrum available.</p>}
       {spectrumError&&<p className="inline-warning" role="alert">{spectrumError}</p>}
     </section>}
@@ -75,29 +75,28 @@ export default function Inspector({view,frame,frames,selection,spectrum,spectrum
         {frame.exposureSeconds!==undefined&&<div><dt>Exposure</dt><dd>{frame.exposureSeconds} seconds</dd></div>}
         {frame.flags?.length? <div><dt>Quality flags</dt><dd>{frame.flags.join(', ')}</dd></div>:null}
       </dl>}
-      <p className="control-hint">Only metadata supplied by the backend is shown.</p>
+      <p className="control-hint">Metadata from the selected observation.</p>
       {searchWarnings?.map((s,i)=><p className="quality-warning" key={i}><AlertCircle size={14}/>{s}</p>)}
     </section>}
     {view==='explorer'&&explorerTab==='details'&&<section className="inspector-body">
       <div className="panel-section-title"><Crosshair size={15}/>Selection</div>
-      {!selection?<div className="quiet-panel"><strong>No object selected</strong><span>Select a source in the image to inspect it.</span></div>:<div className="quiet-panel">
+      {!selection?<div className="empty-state"><strong>No selection</strong><span>{frame?'Click the image to inspect a position.':'Load an observation to inspect an image.'}</span></div>:<div className="quiet-panel">
         <strong>{candidate?.label|| (candidate?'Unverified candidate':'Image selection')}</strong>
         {candidate?<><span>RA {candidate.raDeg.toFixed(6)}°</span><span>Dec {candidate.decDeg.toFixed(6)}°</span><span>Unverified candidate</span></>:<span>Image point {Math.round((selection.type==='image'?selection.point.xFraction:0)*100)}%, {Math.round((selection.type==='image'?selection.point.yFraction:0)*100)}%</span>}
       </div>}
       <div className="panel-divider"/>
       <div className="panel-section-title"><Layers size={15}/>Combine exposures</div>
-      <p className="control-hint">Average the {frames.length} displayed epochs on a shared sky grid. Noise improvement depends on coverage and systematics. Moving sources can blur.</p>
-      <button className="secondary-button full-button" type="button" disabled={frames.length<2||combineBusy} onClick={onGenerateCombine}><Layers size={16}/>{combineBusy?'Combining…':`Combine ${frames.length} exposures`}</button>
-      {combine&&<div className="result-inline"><strong>Combined image loaded</strong><p>{combine.method||'Backend processing method not supplied.'}</p><button type="button" onClick={onClearCombine}>Return to original image</button></div>}
-      {combineError&&<p className="inline-warning" role="alert">{combineError}</p>}{combine?.warnings?.map((s,i)=><p className="quality-warning" key={i}><AlertCircle size={14}/>{s}</p>)}
-      {frames.length<2&&<p className="empty-text">At least two real observations are required.</p>}
+      {frames.length>=2?<><p className="control-hint">Average matching exposures into one image. Moving sources may blur.</p>
+        <button className="secondary-button full-button" type="button" disabled={combineBusy} onClick={onGenerateCombine}><Layers size={16}/>{combineBusy?'Combining…':`Combine ${frames.length} exposures`}</button></>:<p className="empty-text">Available with two or more observations.</p>}
+      {combine&&<div className="result-inline" role="status"><strong>Combined image ready</strong><button type="button" onClick={onClearCombine}>View original</button><details className="processing-notes"><summary>Processing details{combine.warnings?.length?` (${combine.warnings.length} notes)`:''}</summary><p>{combine.method||'Processing method not supplied.'}</p>{combine.warnings?.map((s,i)=><p className="quality-warning" key={i}><AlertCircle size={14}/>{s}</p>)}</details></div>}
+      {combineError&&<p className="inline-warning" role="alert">{combineError}</p>}
       <div className="panel-divider"/>
       <div className="panel-section-title"><Sparkles size={15}/>Spectral fingerprint</div>
-      {spectrumBusy?<p className="empty-text">Loading spectrum…</p>:spectrum?<><SpectrumPlot data={spectrum}/><small className="control-hint">{spectrum.samples.length} measured points · {spectrum.fluxUnit}</small></>:<div className="quiet-panel"><strong>No spectrum available</strong><span>Choose a source to request its spectrum.</span></div>}
+      {spectrumBusy?<p className="empty-text">Loading spectrum…</p>:spectrum?<><SpectrumPlot data={spectrum}/><small className="control-hint">{spectrum.samples.length} measured points · {spectrum.fluxUnit}</small></>:<div className="empty-state"><strong>No spectrum yet</strong><span>Select a source to view its spectrum.</span></div>}
       {spectrumError&&<p className="inline-warning" role="alert">{spectrumError}</p>}
       <div className="panel-divider"/>
       <div className="panel-section-title"><Radar size={15}/>Discovery candidates</div>
-      {discovery?.candidates.length?<><p className="control-hint">{discovery.candidates.length} unverified candidates</p>{discovery.candidates.slice(0,5).map(c=><button key={c.id} type="button" className="compact-candidate" onClick={()=>onCandidate(c)}>{c.label||c.id}<span>Inspect</span></button>)}</>:<div className="quiet-panel"><strong>No candidates loaded</strong><span>Use Discover to inspect changes between observations.</span></div>}
+      {discovery?.candidates.length?<><p className="control-hint">{discovery.candidates.length} unverified candidates</p>{discovery.candidates.slice(0,5).map(c=><button key={c.id} type="button" className="compact-candidate" onClick={()=>onCandidate(c)}>{c.label||c.id}<span>Inspect</span></button>)}</>:<div className="empty-state"><strong>No candidates yet</strong><span>Open Discover to check for changes.</span></div>}
       {frame?.flags?.length? <p className="quality-warning"><AlertCircle size={14}/>{frame.flags.join(', ')}</p>:null}
     </section>}
   </aside>
