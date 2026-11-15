@@ -1,5 +1,5 @@
 import type {
-  BandSelection, CombineResponse, DiscoveryResponse, DifferenceResponse, Observation,
+  BandSelection, CombineResponse, DiscoveryResponse, DifferenceResponse, MatchResponse, MotionTrack, Observation,
   ObservationsResponse, OverlayResponse, ResolvedTarget,
   SearchTarget, SpectrumRequest, SpectrumResponse,
 } from '../types/astronomy'
@@ -86,4 +86,15 @@ export async function getCombine(observationIds:string[],signal?:AbortSignal) {
 
 export async function getObservationMetadata(observationId:string,signal?:AbortSignal) {
   return request<Partial<Observation>>(`/metadata?${params({observationId})}`,signal)
+}
+
+/** Requests actual FITS metadata on demand; no guessed wavelength matches. */
+export async function getMatches(ids:string[],minDays=1,signal?:AbortSignal) {
+  if(ids.length<2||ids.length>24)throw new ApiError('Select between 2 and 24 observations for matching.')
+  return request<MatchResponse>(`/matches?${params({ids:ids.join(','),minDays})}`,signal)
+}
+/** Track a user-selected real source, not automatically confirmed astrophysical motion. */
+export async function getMotionTrack(ids:string[],referenceId:string,position:{xFraction:number;yFraction:number},signal?:AbortSignal) {
+  if(ids.length<2||ids.length>24)throw new ApiError('Select between 2 and 24 observations for tracking.')
+  return request<MotionTrack>(`/track?${params({ids:ids.join(','),referenceId,x:position.xFraction,y:position.yFraction})}`,signal)
 }

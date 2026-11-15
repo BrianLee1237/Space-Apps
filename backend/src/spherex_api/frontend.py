@@ -1,6 +1,7 @@
 """Compatibility routes for the existing, unchanged React frontend."""
 
 import json
+import math
 import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -11,7 +12,8 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
 from .archive import ArchiveError
-from .candidates import detect_candidates
+from .analysis import matched_pairs, track_source
+from .candidates import DEFAULT_CANDIDATE_REJECT_BITS, detect_candidates
 from .gaia import gaia_overlay
 from .imaging import combine_png, difference_png, preview_png
 from .models import SearchRequest
@@ -247,13 +249,14 @@ def frontend_router(sky, gaia):
         fromId: Annotated[str, Query(min_length=1)],
         toId: Annotated[str, Query(min_length=1)],
         pixels: Annotated[int, Query(ge=32, le=1024)] = 512,
-        reject_bits: Annotated[int, Query(ge=0, le=2**32 - 1)] = 0,
+        reject_bits: Annotated[int, Query(ge=0, le=2**32 - 1)] = DEFAULT_CANDIDATE_REJECT_BITS,
         subtract_zodi: bool = False,
     ):
         _, _, _, pair_warnings = resolve_difference_pair(sky, fromId, toId)
         warnings = [
-            "Not a flux-calibrated difference image: no PSF matching or background fitting.",
-            "Residuals near bright, saturated, or flagged pixels are not scientifically validated.",
+            "Not a calibrated difference image: a constant background offset is removed; "
+            "Gaussian PSF matching is applied only when both FITS headers provide PSF_FWHM.",
+            "Residuals around bright/flagged sources are not scientifically validated.",
             *pair_warnings,
         ]
         image_params = urlencode(
@@ -270,7 +273,8 @@ def frontend_router(sky, gaia):
             "method": (
                 "Both cutouts resampled with bilinear interpolation onto one shared "
                 "ICRS tangent-plane grid (the earlier frame's requested field center "
-                "and pixel scale), then to-minus-from subtraction with a zero-centered "
+                "and pixel scale), with constant-background correction and conditional "
+                "PSF smoothing; then to-minus-from subtraction with a zero-centered "
                 "asinh stretch: red where the later frame is brighter, blue where it is dimmer."
             ),
             "warnings": warnings,
@@ -281,7 +285,7 @@ def frontend_router(sky, gaia):
         fromId: Annotated[str, Query(min_length=1)],
         toId: Annotated[str, Query(min_length=1)],
         pixels: Annotated[int, Query(ge=32, le=1024)] = 512,
-        reject_bits: Annotated[int, Query(ge=0, le=2**32 - 1)] = 0,
+        reject_bits: Annotated[int, Query(ge=0, le=2**32 - 1)] = DEFAULT_CANDIDATE_REJECT_BITS,
         subtract_zodi: bool = False,
     ):
         request, path_earlier, path_later, pair_warnings = resolve_difference_pair(
@@ -382,6 +386,76 @@ def frontend_router(sky, gaia):
             raise HTTPException(502, str(exc)) from exc
         return {"sources": sources, "catalog": catalog, "warnings": warnings}
 
+    def analysis_records(ids):
+        """Retrieve observation metadata on demand without trusting client-supplied wavelengths."""
+        identifiers = list(dict.fromkeys(v.strip() for v in ids.split(",") if v.strip()))
+        if not 2 <= len(identifiers) <= 24:
+            raise HTTPException(422, "Choose 2-24 distinct observations.")
+        records = []
+        warnings = []
+        for identifier in identifiers:
+            search_id, frame_id, entry = manifest_frame_entry(sky, identifier)
+            try:
+                path, meta = sky.frame(search_id, frame_id)
+            except ArchiveError:
+                warnings.append(f"A cutout could not be fetched for {identifier}; it was skipped.")
+                continue
+            records.append(
+                {
+                    "id": identifier,
+                    "path": path,
+                    "request": SearchRequest.model_validate(sky.manifest(search_id)["query"]),
+                    "metadata": meta,
+                    "observedAt": entry["observed_at_utc"],
+                    "detector": entry["detector"],
+                    "wavelengthMicron": meta.get("central_wavelength_um"),
+                    "flags": meta.get("center_flag_names", []),
+                }
+            )
+        records.sort(key=lambda frame: frame["observedAt"])
+        return records, warnings
+
+    @router.get("/matches")
+    def match_epochs(
+        ids: Annotated[str, Query(min_length=1)],
+        minDays: Annotated[float, Query(ge=0, le=3650, allow_inf_nan=False)] = 1,
+    ):
+        records, warnings = analysis_records(ids)
+        matches = matched_pairs(records, min_days=minDays)
+        if not matches:
+            warnings.append(
+                "No sufficiently separated observations match the same detector and "
+                "center wavelength within 1.2% (minimum 0.012 microns). "
+                "Try a different target or time spacing; do not infer variability from mismatched bands."
+            )
+        return {
+            "pairs": matches,
+            "inspected": len(records),
+            "warnings": warnings,
+            "method": "FITS-center wavelength, same-detector and elapsed-time matching",
+        }
+
+    @router.get("/track")
+    def track(
+        ids: Annotated[str, Query(min_length=1)],
+        referenceId: Annotated[str, Query(min_length=1)],
+        x: Annotated[float, Query(ge=0, le=1, allow_inf_nan=False)],
+        y: Annotated[float, Query(ge=0, le=1, allow_inf_nan=False)],
+        maxShiftArcsec: Annotated[float, Query(ge=5, le=120, allow_inf_nan=False)] = 45,
+    ):
+        records, warnings = analysis_records(ids)
+        if not records:
+            raise HTTPException(422, "No frames could be read for tracking.")
+        try:
+            result = track_source(records, referenceId, x, y, maxShiftArcsec)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {
+            **result,
+            "warnings": [*warnings, *result["warnings"]],
+            "method": "Nearest significant local peak and 5x5 weighted centroid on registered FITS cutouts",
+        }
+
     @router.get("/candidates")
     def candidates(
         ra: Annotated[float, Query(ge=0, lt=360, allow_inf_nan=False)],
@@ -389,40 +463,68 @@ def frontend_router(sky, gaia):
         fov: Annotated[float, Query(ge=0.5, le=60, allow_inf_nan=False)],
         ids: Annotated[str, Query(min_length=1)],
     ):
-        identifiers = [value for value in ids.split(",") if value]
-        if len(identifiers) < 2:
-            raise HTTPException(422, "Provide at least two comma-separated observation ids.")
-        entries = [manifest_frame_entry(sky, identifier) for identifier in identifiers]
-        entries.sort(key=lambda entry: entry[2]["mjd_start"])
-        earlier_search, earlier_frame, earlier_entry = entries[0]
-        later_search, later_frame, later_entry = entries[-1]
-        path_earlier, _ = sky.frame(earlier_search, earlier_frame)
-        path_later, _ = sky.frame(later_search, later_frame)
-        request = SearchRequest.model_validate(sky.manifest(earlier_search)["query"])
-        found, warnings = detect_candidates(
-            path_earlier,
-            path_later,
-            request,
-            earlier_entry["observed_at_utc"],
-            later_entry["observed_at_utc"],
-        )
-        if (
-            abs(request.ra - ra) > 1e-6
-            or abs(request.dec - dec) > 1e-6
-            or abs(request.fov_arcmin - fov) > 1e-6
-        ):
-            warnings.append(
-                "The requested ra/dec/fov differ from the earliest observation's own "
-                "search; candidates are positioned on that observation's grid."
+        records, warnings = analysis_records(ids)
+        if len(records) < 2:
+            return {
+                "candidates": [], "method": "Wavelength-matched epoch comparisons",
+                "notes": "No usable pair was retrieved.", "warnings": warnings,
+            }
+        # Never interpret a raw cross-detector or wavelength mismatch as motion.
+        pairs = matched_pairs(records, min_days=1, limit=36)
+        if not pairs:
+            return {
+                "candidates": [], "method": "Wavelength-matched epoch comparisons",
+                "notes": "No detector/wavelength-matched pair with a time baseline was found.",
+                "warnings": [*warnings, "No compatible epoch pairs. Use the Compare tab to inspect wavelength matching."],
+            }
+        by_id = {entry["id"]: entry for entry in records}
+        selected = []
+        used = set()
+        for pair in pairs:
+            if pair["fromId"] in used or pair["toId"] in used:
+                continue
+            a, b = by_id[pair["fromId"]], by_id[pair["toId"]]
+            q = a["request"]
+            if any(
+                abs(getattr(q, key) - getattr(b["request"], key)) > 1e-7
+                for key in ("ra", "dec", "fov_arcmin")
+            ):
+                warnings.append("Skipped mismatched search fields.")
+                continue
+            selected.append(pair)
+            used.update((pair["fromId"], pair["toId"]))
+            if len(selected) == 3:
+                break
+        all_found = []
+        for pair in selected:
+            a, b = by_id[pair["fromId"]], by_id[pair["toId"]]
+            found, notes = detect_candidates(
+                a["path"], b["path"], a["request"], a["observedAt"], b["observedAt"]
             )
+            warnings.extend(notes)
+            for item in found:
+                # Group spatially nearby residuals across independent epoch pairs.
+                same = next((v for v in all_found if
+                    abs(v["raDeg"] - item["raDeg"]) * 3600
+                    * max(0.1, abs(math.cos(math.radians(v["decDeg"])))) < 40
+                    and abs(v["decDeg"] - item["decDeg"]) * 3600 < 40), None)
+                if same is not None:
+                    same["supportingPairs"] += 1
+                    continue
+                item["supportingPairs"] = 1
+                all_found.append(item)
+        all_found.sort(key=lambda v: -v["supportingPairs"])
+        for i, item in enumerate(all_found[:12], 1):
+            item["id"] = f"candidate-{i}"
+            item["label"] = f"Change {i}"
+            item["caption"] += f" Seen in {item['supportingPairs']} independent epoch pair(s); still unverified."
+        if len(all_found) > 12:
+            warnings.append("Only the 12 strongest repeated residual locations are displayed.")
         return {
-            "candidates": found,
-            "method": found[0]["method"] if found else "blob detection on a difference image",
-            "notes": (
-                f"Compared {len(identifiers)} requested observations by using the earliest "
-                "and latest by observation time, for maximum baseline."
-            ),
-            "warnings": warnings,
+            "candidates": all_found[:12],
+            "method": "Residual blob detection in up to three independent detector/wavelength-matched epoch pairs",
+            "notes": f"Compared {len(selected)} independent pair(s) from {len(records)} observation(s).",
+            "warnings": list(dict.fromkeys(warnings)),
         }
 
     @router.get("/spectrum")
@@ -433,6 +535,10 @@ def frontend_router(sky, gaia):
         ra: Annotated[float | None, Query(ge=0, lt=360, allow_inf_nan=False)] = None,
         dec: Annotated[float | None, Query(ge=-90, le=90, allow_inf_nan=False)] = None,
     ):
+        existing_manifest = None
+        if observationId is not None:
+            search_id, _ = observation_parts(observationId)
+            existing_manifest = sky.manifest(search_id)
         if ra is not None and dec is not None:
             target_ra, target_dec = ra, dec
             fov_arcmin = 2.0
@@ -446,7 +552,9 @@ def frontend_router(sky, gaia):
         else:
             raise HTTPException(422, "Provide ra and dec, or observationId with x and y.")
 
-        samples, fingerprint_warnings = build_fingerprint(sky, target_ra, target_dec, fov_arcmin)
+        samples, fingerprint_warnings = build_fingerprint(
+            sky, target_ra, target_dec, fov_arcmin, existing_manifest=existing_manifest
+        )
         return {
             "samples": [
                 {
@@ -461,7 +569,7 @@ def frontend_router(sky, gaia):
             "fluxUnit": samples[0]["bunit"] if samples else "MJy/sr",
             "extractionMethod": (
                 "Single-pixel real flux read directly from one native FITS cutout per "
-                "available temporal sample across all six detectors (nearest-pixel, no PSF "
+                "available real FITS exposure (nearest-pixel, no PSF "
                 "photometry or aperture correction), at the exact requested sky position."
             ),
             "sourceLabel": label,
