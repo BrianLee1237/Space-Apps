@@ -2,6 +2,7 @@ import { SlidersHorizontal, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import type { ViewName } from '../types/astronomy'
 const items: Array<{id:ViewName;label:string}>= [
   {id:'explorer',label:'Explorer'},
+  {id:'science',label:'Science'},
   {id:'motion',label:'Motion'},
   {id:'discover',label:'Discover'},
   {id:'spectrum',label:'Spectrum'},

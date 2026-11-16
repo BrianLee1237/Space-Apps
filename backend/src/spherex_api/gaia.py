@@ -115,7 +115,7 @@ class GaiaClient:
         for name, url, format_name in providers:
             params = {"REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": format_name, "QUERY": query}
             try:
-                response = self.client.post(url, data=params)
+                response = self.client.get(url, params=params)
                 response.raise_for_status()
                 if format_name == "json":
                     payload = response.json()
@@ -176,9 +176,7 @@ def gaia_overlay(client, request, target_iso, pixels=512, limit=75):
             continue
         pmra, pmdec = row[index["pmra"]], row[index["pmdec"]]
         if pmra is not None and pmdec is not None:
-            ra, dec = propagate_position(
-                ra, dec, pmra, pmdec, row[index["ref_epoch"]], target_year
-            )
+            ra, dec = propagate_position(ra, dec, pmra, pmdec, row[index["ref_epoch"]], target_year)
         else:
             without_motion += 1
         x, y = wcs.world_to_pixel(SkyCoord(ra, dec, unit="deg", frame="icrs"))

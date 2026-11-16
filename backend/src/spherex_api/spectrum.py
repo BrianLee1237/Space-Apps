@@ -12,11 +12,10 @@ import astropy.units as u
 import numpy as np
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
-from astropy.wcs import WCS
 
 from .archive import ArchiveError
 from .candidates import DEFAULT_CANDIDATE_REJECT_BITS
-from .imaging import finite_float, output_wcs, spatial_wcs
+from .imaging import finite_float, output_wcs, spatial_wcs, spectral_wcs
 from .models import SearchRequest
 from .spectral import temporal_sample_groups
 
@@ -73,12 +72,7 @@ def point_sample(path, ra, dec):
                 flag_names.append(str(flag_header[keyword]))
 
         # Spectral WCS uses detector/filter geometry; SIP applies only to sky WCS.
-        spectral_header = header.copy()
-        for keyword in list(spectral_header):
-            if re.fullmatch(r"(A|B|AP|BP)_(ORDER|\d+_\d+)", keyword):
-                del spectral_header[keyword]
-        spectral = WCS(spectral_header, fobj=hdus, key="W")
-        spectral.sip = None
+        spectral = spectral_wcs(hdus)
         wavelength, _bandwidth = spectral.pixel_to_world(x, y)
         wave_um = finite_float(wavelength.to_value(u.um))
         if wave_um is None:
@@ -133,7 +127,10 @@ def cached_point_samples(sky, manifest, ra, dec, max_frames=24):
     if unreadable:
         warnings.append(f"{unreadable} cached FITS exposure(s) could not be read and were skipped.")
     if not samples:
-        warnings.append("No valid cached pixels cover this sky position. Try a nearby source or wait for more observations to load.")
+        warnings.append(
+            "No valid cached pixels cover this sky position. "
+            "Try a nearby source or wait for more observations to load."
+        )
     return samples, warnings
 
 

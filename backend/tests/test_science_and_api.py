@@ -677,14 +677,14 @@ def test_unchanged_frontend_contract(tmp_path):
 def test_wavelength_matches_and_multiepoch_tracking_are_measured(tmp_path):
     """Checks the new API against real-looking FITS bytes, never synthetic API JSON."""
     query = SearchRequest(ra=133.7, dec=-7.2, fov_arcmin=10)
-    second_url = DATA_URL.replace('example', 'moving2')
+    second_url = DATA_URL.replace("example", "moving2")
     rows = [
-        (DATA_URL, 'obs-a', 'SPHEREx-D6', 'spherex_dr1', 60900.0),
-        (second_url, 'obs-b', 'SPHEREx-D6', 'spherex_dr1', 60910.0),
+        (DATA_URL, "obs-a", "SPHEREx-D6", "spherex_dr1", 60900.0),
+        (second_url, "obs-b", "SPHEREx-D6", "spherex_dr1", 60910.0),
     ]
 
     def upstream(request):
-        if request.url.path == '/SIA':
+        if request.url.path == "/SIA":
             return httpx.Response(200, content=sia_bytes(rows=rows))
         offset = (42, 38) if str(request.url).startswith(second_url) else (40, 38)
         return httpx.Response(200, content=mef_bytes(query, center_pixel=offset))
@@ -692,42 +692,50 @@ def test_wavelength_matches_and_multiepoch_tracking_are_measured(tmp_path):
     settings = Settings(data_dir=tmp_path)
     service = SkyService(settings, ArchiveClient(settings, httpx.MockTransport(upstream)))
     client = TestClient(create_app(settings, service=service))
-    frames = client.get('/api/observations', params={'ra': 133.7, 'dec': -7.2, 'fov': 10}).json()['observations']
-    ids = ','.join(frame['id'] for frame in frames)
-    matched = client.get('/api/matches', params={'ids': ids, 'minDays': 1})
+    frames = client.get("/api/observations", params={"ra": 133.7, "dec": -7.2, "fov": 10}).json()[
+        "observations"
+    ]
+    ids = ",".join(frame["id"] for frame in frames)
+    matched = client.get("/api/matches", params={"ids": ids, "minDays": 1})
     assert matched.status_code == 200, matched.text
-    assert len(matched.json()['pairs']) == 1
-    pair = matched.json()['pairs'][0]
-    assert pair['fromId'] == frames[0]['id']
-    assert pair['toId'] == frames[1]['id']
-    assert pair['wavelengthDifferencePercent'] == pytest.approx(0)
+    assert len(matched.json()["pairs"]) == 1
+    pair = matched.json()["pairs"][0]
+    assert pair["fromId"] == frames[0]["id"]
+    assert pair["toId"] == frames[1]["id"]
+    assert pair["wavelengthDifferencePercent"] == pytest.approx(0)
 
     # The 64-pixel fixture maps to 512-pixel display coordinates. 5 arcsec/pixel
     # output scale is not assumed: the backend uses the actual WCS conversion.
     click_x = ((40 + 0.5) * 8 - 0.5) / 511
     click_y = 1 - ((38 + 0.5) * 8 - 0.5) / 511
-    response = client.get('/api/track', params={
-        'ids': ids, 'referenceId': frames[0]['id'], 'x': click_x, 'y': click_y,
-    })
+    response = client.get(
+        "/api/track",
+        params={
+            "ids": ids,
+            "referenceId": frames[0]["id"],
+            "x": click_x,
+            "y": click_y,
+        },
+    )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert len(body['measurements']) == 2, body['warnings']
-    assert body['summary']['baselineDays'] == pytest.approx(10, abs=0.1)
-    assert 8 < body['summary']['apparentShiftArcsec'] < 40
-    assert body['summary']['observationsMeasured'] == 2
-    assert any('unverified' in warning.lower() for warning in body['warnings'])
+    assert len(body["measurements"]) == 2, body["warnings"]
+    assert body["summary"]["baselineDays"] == pytest.approx(10, abs=0.1)
+    assert 8 < body["summary"]["apparentShiftArcsec"] < 40
+    assert body["summary"]["observationsMeasured"] == 2
+    assert any("unverified" in warning.lower() for warning in body["warnings"])
 
 
 def test_matching_rejects_wavelength_incompatibility(tmp_path):
     query = SearchRequest(ra=133.7, dec=-7.2, fov_arcmin=10)
-    second_url = DATA_URL.replace('example', 'mismatch2')
+    second_url = DATA_URL.replace("example", "mismatch2")
     rows = [
-        (DATA_URL, 'obs-a', 'SPHEREx-D6', 'spherex_dr1', 60900.0),
-        (second_url, 'obs-b', 'SPHEREx-D6', 'spherex_dr1', 60910.0),
+        (DATA_URL, "obs-a", "SPHEREx-D6", "spherex_dr1", 60900.0),
+        (second_url, "obs-b", "SPHEREx-D6", "spherex_dr1", 60910.0),
     ]
 
     def upstream(request):
-        if request.url.path == '/SIA':
+        if request.url.path == "/SIA":
             return httpx.Response(200, content=sia_bytes(rows=rows))
         wavelength = 5.0 if str(request.url).startswith(second_url) else 4.5
         return httpx.Response(200, content=mef_bytes(query, wave_crval=wavelength))
@@ -735,36 +743,49 @@ def test_matching_rejects_wavelength_incompatibility(tmp_path):
     settings = Settings(data_dir=tmp_path)
     service = SkyService(settings, ArchiveClient(settings, httpx.MockTransport(upstream)))
     client = TestClient(create_app(settings, service=service))
-    frames = client.get('/api/observations', params={'ra': 133.7, 'dec': -7.2, 'fov': 10}).json()['observations']
-    ids = ','.join(frame['id'] for frame in frames)
-    resp = client.get('/api/matches', params={'ids': ids})
+    frames = client.get("/api/observations", params={"ra": 133.7, "dec": -7.2, "fov": 10}).json()[
+        "observations"
+    ]
+    ids = ",".join(frame["id"] for frame in frames)
+    resp = client.get("/api/matches", params={"ids": ids})
     assert resp.status_code == 200, resp.text
-    assert resp.json()['pairs'] == []
-    assert any('No sufficiently separated' in warning for warning in resp.json()['warnings'])
+    assert resp.json()["pairs"] == []
+    assert any("No sufficiently separated" in warning for warning in resp.json()["warnings"])
 
 
 def test_tracking_rejects_unverified_source_and_invalid_inputs(tmp_path):
     query = SearchRequest(ra=133.7, dec=-7.2, fov_arcmin=10)
-    second_url = DATA_URL.replace('example', 'none2')
-    rows = [(DATA_URL, 'obs-a', 'SPHEREx-D6', 'spherex_dr1', 60900.0),
-            (second_url, 'obs-b', 'SPHEREx-D6', 'spherex_dr1', 60910.0)]
+    second_url = DATA_URL.replace("example", "none2")
+    rows = [
+        (DATA_URL, "obs-a", "SPHEREx-D6", "spherex_dr1", 60900.0),
+        (second_url, "obs-b", "SPHEREx-D6", "spherex_dr1", 60910.0),
+    ]
 
     def upstream(request):
-        if request.url.path == '/SIA':
+        if request.url.path == "/SIA":
             return httpx.Response(200, content=sia_bytes(rows=rows))
         return httpx.Response(200, content=mef_bytes(query))
 
     settings = Settings(data_dir=tmp_path)
     service = SkyService(settings, ArchiveClient(settings, httpx.MockTransport(upstream)))
     client = TestClient(create_app(settings, service=service))
-    frames = client.get('/api/observations', params={'ra': 133.7, 'dec': -7.2, 'fov': 10}).json()['observations']
-    ids = ','.join(frame['id'] for frame in frames)
-    r = client.get('/api/track', params={'ids': ids, 'referenceId': frames[0]['id'], 'x': 0.1, 'y': 0.1})
+    frames = client.get("/api/observations", params={"ra": 133.7, "dec": -7.2, "fov": 10}).json()[
+        "observations"
+    ]
+    ids = ",".join(frame["id"] for frame in frames)
+    r = client.get(
+        "/api/track", params={"ids": ids, "referenceId": frames[0]["id"], "x": 0.1, "y": 0.1}
+    )
     assert r.status_code == 200
-    assert r.json()['measurements'] == []
-    assert r.json()['summary'] is None
-    assert any('No significant source' in w for w in r.json()['warnings'])
-    assert client.get('/api/track', params={'ids': ids, 'referenceId': frames[0]['id'], 'x': 2, 'y': 0.1}).status_code == 422
+    assert r.json()["measurements"] == []
+    assert r.json()["summary"] is None
+    assert any("No significant source" in w for w in r.json()["warnings"])
+    assert (
+        client.get(
+            "/api/track", params={"ids": ids, "referenceId": frames[0]["id"], "x": 2, "y": 0.1}
+        ).status_code
+        == 422
+    )
 
 
 def test_centroid_uses_peak_not_nearest_psf_noise_ripple():
@@ -773,9 +794,9 @@ def test_centroid_uses_peak_not_nearest_psf_noise_ripple():
 
     y, x = np.indices((512, 512))
     noise = np.random.default_rng(203).normal(0, 0.05, size=(512, 512))
-    image = noise + 20 * np.exp(-((x - 339.5) ** 2 + (y - 307.5) ** 2) / (2 * 11 ** 2))
+    image = noise + 20 * np.exp(-((x - 339.5) ** 2 + (y - 307.5) ** 2) / (2 * 11**2))
     measured = _local_centroid(image, 323.5, 307.5, radius=38)
     assert measured is not None
-    assert measured['peakSnr'] >= 5
-    assert abs(measured['x'] - 339.5) < 1
-    assert abs(measured['y'] - 307.5) < 1
+    assert measured["peakSnr"] >= 5
+    assert abs(measured["x"] - 339.5) < 1
+    assert abs(measured["y"] - 307.5) < 1

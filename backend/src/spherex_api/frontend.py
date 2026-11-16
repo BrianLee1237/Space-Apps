@@ -1,7 +1,6 @@
 """Compatibility routes for the existing, unchanged React frontend."""
 
 import json
-import math
 import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -11,9 +10,9 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
+from .analysis import discover_changes, matched_pairs, track_source
 from .archive import ArchiveError
-from .analysis import matched_pairs, track_source
-from .candidates import DEFAULT_CANDIDATE_REJECT_BITS, detect_candidates
+from .candidates import DEFAULT_CANDIDATE_REJECT_BITS
 from .gaia import gaia_overlay
 from .imaging import combine_png, difference_png, preview_png
 from .models import SearchRequest
@@ -96,7 +95,7 @@ def frontend_router(sky, gaia):
 
     @router.get("/resolve")
     def resolve(name: Annotated[str, Query(min_length=1, max_length=128)]):
-        normalized = name.strip().casefold().replace("’", "'")
+        normalized = name.strip().casefold().replace("ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢", "'")
         aliases = {"eps ind b": "epsilon indi b", "rw aur": "rw aurigae", "r dra": "r draconis"}
         normalized = aliases.get(normalized, normalized)
         for target in TARGETS:
@@ -127,6 +126,7 @@ def frontend_router(sky, gaia):
         dec: Annotated[float, Query(ge=-90, le=90, allow_inf_nan=False)],
         fov: Annotated[float, Query(ge=0.5, le=60, allow_inf_nan=False)] = 10,
         mode: Literal["auto", "detector", "channel"] = "auto",
+        refresh: bool = False,
         index: Annotated[int | None, Query(ge=1, le=102)] = None,
     ):
         if mode == "channel" and index is None:
@@ -137,7 +137,7 @@ def frontend_router(sky, gaia):
         channel = CHANNELS[index - 1] if mode == "channel" else None
         detector = channel["detector"] if channel else index if mode == "detector" else 6
         query = SearchRequest(ra=ra, dec=dec, fov_arcmin=fov, detectors=(detector,))
-        manifest = sky.search(query)
+        manifest = sky.search(query, refresh=refresh)
         if not manifest["complete"]:
             raise HTTPException(
                 422, "The archive truncated this search. Use /v1/search with a narrower time range."
@@ -169,7 +169,7 @@ def frontend_router(sky, gaia):
                 "warnings": [
                     *manifest["warnings"],
                     f"Channel {index} window "
-                    f"{channel['WL_MIN']:.4f}–{channel['WL_MAX']:.4f} µm. "
+                    f"{channel['WL_MIN']:.4f}ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“{channel['WL_MAX']:.4f} Ãƒâ€šÃ‚Âµm. "
                     "Pixels outside that approximate spectral-WCS window are transparent.",
                 ],
             }
@@ -426,7 +426,8 @@ def frontend_router(sky, gaia):
             warnings.append(
                 "No sufficiently separated observations match the same detector and "
                 "center wavelength within 1.2% (minimum 0.012 microns). "
-                "Try a different target or time spacing; do not infer variability from mismatched bands."
+                "Try a different target or time spacing. "
+                "Wavelength mismatch can imitate variability."
             )
         return {
             "pairs": matches,
@@ -453,7 +454,9 @@ def frontend_router(sky, gaia):
         return {
             **result,
             "warnings": [*warnings, *result["warnings"]],
-            "method": "Nearest significant local peak and 5x5 weighted centroid on registered FITS cutouts",
+            "method": (
+                "Significant local peaks and weighted centroids on registered native FITS cutouts"
+            ),
         }
 
     @router.get("/candidates")
@@ -464,68 +467,16 @@ def frontend_router(sky, gaia):
         ids: Annotated[str, Query(min_length=1)],
     ):
         records, warnings = analysis_records(ids)
-        if len(records) < 2:
-            return {
-                "candidates": [], "method": "Wavelength-matched epoch comparisons",
-                "notes": "No usable pair was retrieved.", "warnings": warnings,
-            }
-        # Never interpret a raw cross-detector or wavelength mismatch as motion.
-        pairs = matched_pairs(records, min_days=1, limit=36)
-        if not pairs:
-            return {
-                "candidates": [], "method": "Wavelength-matched epoch comparisons",
-                "notes": "No detector/wavelength-matched pair with a time baseline was found.",
-                "warnings": [*warnings, "No compatible epoch pairs. Use the Compare tab to inspect wavelength matching."],
-            }
-        by_id = {entry["id"]: entry for entry in records}
-        selected = []
-        used = set()
-        for pair in pairs:
-            if pair["fromId"] in used or pair["toId"] in used:
-                continue
-            a, b = by_id[pair["fromId"]], by_id[pair["toId"]]
-            q = a["request"]
+        result = discover_changes(records)
+        if records:
+            request = records[0]["request"]
             if any(
-                abs(getattr(q, key) - getattr(b["request"], key)) > 1e-7
-                for key in ("ra", "dec", "fov_arcmin")
+                abs(a - b) > 1e-6
+                for a, b in ((request.ra, ra), (request.dec, dec), (request.fov_arcmin, fov))
             ):
-                warnings.append("Skipped mismatched search fields.")
-                continue
-            selected.append(pair)
-            used.update((pair["fromId"], pair["toId"]))
-            if len(selected) == 3:
-                break
-        all_found = []
-        for pair in selected:
-            a, b = by_id[pair["fromId"]], by_id[pair["toId"]]
-            found, notes = detect_candidates(
-                a["path"], b["path"], a["request"], a["observedAt"], b["observedAt"]
-            )
-            warnings.extend(notes)
-            for item in found:
-                # Group spatially nearby residuals across independent epoch pairs.
-                same = next((v for v in all_found if
-                    abs(v["raDeg"] - item["raDeg"]) * 3600
-                    * max(0.1, abs(math.cos(math.radians(v["decDeg"])))) < 40
-                    and abs(v["decDeg"] - item["decDeg"]) * 3600 < 40), None)
-                if same is not None:
-                    same["supportingPairs"] += 1
-                    continue
-                item["supportingPairs"] = 1
-                all_found.append(item)
-        all_found.sort(key=lambda v: -v["supportingPairs"])
-        for i, item in enumerate(all_found[:12], 1):
-            item["id"] = f"candidate-{i}"
-            item["label"] = f"Change {i}"
-            item["caption"] += f" Seen in {item['supportingPairs']} independent epoch pair(s); still unverified."
-        if len(all_found) > 12:
-            warnings.append("Only the 12 strongest repeated residual locations are displayed.")
-        return {
-            "candidates": all_found[:12],
-            "method": "Residual blob detection in up to three independent detector/wavelength-matched epoch pairs",
-            "notes": f"Compared {len(selected)} independent pair(s) from {len(records)} observation(s).",
-            "warnings": list(dict.fromkeys(warnings)),
-        }
+                warnings.append("Candidate positions use the recorded search grid.")
+        result["warnings"] = [*warnings, *result["warnings"]]
+        return result
 
     @router.get("/spectrum")
     def spectrum(
@@ -542,7 +493,7 @@ def frontend_router(sky, gaia):
         if ra is not None and dec is not None:
             target_ra, target_dec = ra, dec
             fov_arcmin = 2.0
-            label = f"RA {ra:.5f}°, Dec {dec:.5f}°"
+            label = f"RA {ra:.5f}Ãƒâ€šÃ‚Â°, Dec {dec:.5f}Ãƒâ€šÃ‚Â°"
         elif observationId is not None and x is not None and y is not None:
             search_id, _ = observation_parts(observationId)
             request = SearchRequest.model_validate(sky.manifest(search_id)["query"])

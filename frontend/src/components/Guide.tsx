@@ -1,6 +1,6 @@
 import { ChevronRight, Compass, CheckCircle2 } from 'lucide-react'
 import type { Observation, MatchedPair } from '../types/astronomy'
-export const guides=[
+const guides=[
   {name:"Barnard's Star",subtitle:'High proper-motion star',hint:'Track a bright source across dates; a displacement must be measured, not assumed.'},
   {name:'Epsilon Indi B',subtitle:'Brown dwarf system',hint:'Compare wavelength-matched exposures and look for small shifts.'},
   {name:'WISE 0855',subtitle:'Nearby brown dwarf',hint:'Inspect residuals in different epochs and distinguish motion from detector artifacts.'},

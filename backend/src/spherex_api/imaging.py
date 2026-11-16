@@ -33,6 +33,17 @@ def spatial_wcs(header):
     return result
 
 
+def spectral_wcs(hdus):
+    """Approximate per-pixel wavelength WCS with spatial SIP terms removed."""
+    header = hdus["IMAGE"].header.copy()
+    for keyword in list(header):
+        if re.fullmatch(r"(A|B|AP|BP)_(ORDER|\d+_\d+)", keyword):
+            del header[keyword]
+    result = WCS(header, fobj=hdus, key="W")
+    result.sip = None
+    return result
+
+
 def inspect_fits(source: Path | io.BytesIO, request: SearchRequest):
     try:
         with fits.open(source, memmap=False) as hdus:
@@ -56,12 +67,7 @@ def inspect_fits(source: Path | io.BytesIO, request: SearchRequest):
                 and 0 <= y <= image.shape[0] - 1
             )
             # Spectral WCS uses detector/filter geometry; SIP applies only to sky WCS.
-            spectral_header = header.copy()
-            for keyword in list(spectral_header):
-                if re.fullmatch(r"(A|B|AP|BP)_(ORDER|\d+_\d+)", keyword):
-                    del spectral_header[keyword]
-            spectral = WCS(spectral_header, fobj=hdus, key="W")
-            spectral.sip = None
+            spectral = spectral_wcs(hdus)
             yy, xx = np.indices(image.shape)
             wavelength, bandwidth = spectral.pixel_to_world(xx, yy)
             wave = wavelength.to_value(u.um)
@@ -159,12 +165,7 @@ def registered_image(
         flags = np.asarray(hdus["FLAGS"].data, dtype=np.uint32)
         valid = np.isfinite(image) & ((flags & reject_bits) == 0)
         if channel_bounds:
-            header = hdus["IMAGE"].header.copy()
-            for keyword in list(header):
-                if re.fullmatch(r"(A|B|AP|BP)_(ORDER|\d+_\d+)", keyword):
-                    del header[keyword]
-            spectral = WCS(header, fobj=hdus, key="W")
-            spectral.sip = None
+            spectral = spectral_wcs(hdus)
             yy_native, xx_native = np.indices(image.shape)
             wavelength, _ = spectral.pixel_to_world(xx_native, yy_native)
             wave = wavelength.to_value(u.um)

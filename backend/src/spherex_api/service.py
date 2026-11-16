@@ -1,6 +1,7 @@
 import io
 import time
 from datetime import UTC, datetime
+from functools import lru_cache
 
 from filelock import FileLock
 
@@ -18,6 +19,9 @@ class SkyService:
         self.settings = settings
         self.store = Store(settings)
         self.archive = archive or ArchiveClient(settings)
+        self._manifest_cache = lru_cache(maxsize=128)(
+            lambda search_id: self.store.read("searches", search_id)
+        )
 
     def search(self, request: SearchRequest, refresh=False):
         key = digest(canonical(request.model_dump(mode="json")))
@@ -74,7 +78,7 @@ class SkyService:
             return {**manifest, "cache_hit": False}
 
     def manifest(self, search_id):
-        return self.store.read("searches", search_id)
+        return self._manifest_cache(search_id)
 
     def frame(self, search_id, frame_id):
         manifest = self.manifest(search_id)
@@ -87,6 +91,7 @@ class SkyService:
                 try:
                     metadata = self.store.read("metadata", frame_id)
                     if metadata.get("metadata_schema_version") == METADATA_SCHEMA_VERSION:
+                        path.touch()
                         return path, {**frame, **metadata}
                 except KeyError:
                     pass

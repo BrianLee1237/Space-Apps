@@ -1,28 +1,8 @@
 import type { FormEvent } from 'react'
+import {parseSkyCoordinates} from '../services/coordinates'
 import { AlertCircle, Search, ChevronDown, Layers3, SquareDashed, SlidersHorizontal, Crosshair, X } from 'lucide-react'
 import type { BandSelection, SearchTarget } from '../types/astronomy'
 
-function sexagesimal(value:string, ra:boolean): number | null {
-  const clean=value.trim().replace(/[hHdD°mM′'sS″"]/g,':').replace(/\s+/g,':').replace(/:+$/,'')
-  if(!clean) return null
-  if(/^[-+]?\d+(?:\.\d+)?$/.test(clean)){
-    const deg=Number(clean)
-    return Number.isFinite(deg) && (ra?(deg>=0&&deg<360):(deg>=-90&&deg<=90))?deg:null
-  }
-  if(!clean.includes(':'))return null
-  const parts=clean.split(':').filter(Boolean)
-  if(parts.length<2||parts.length>3||parts.some(p=>!/^\d+(?:\.\d+)?$/.test(p.replace(/^[-+]/,''))))return null
-  const sign=parts[0].startsWith('-')?-1:1
-  const nums=parts.map(v=>Math.abs(Number(v)))
-  if(nums.some(n=>!Number.isFinite(n))||nums[1]>=60||(nums[2]??0)>=60)return null
-  const result=sign*(nums[0]+nums[1]/60+(nums[2]??0)/3600)*(ra?15:1)
-  return (ra?(result>=0&&result<360):(result>=-90&&result<=90))?result:null
-}
-export function parseSkyCoordinates(ra:string,dec:string,fov:number):SearchTarget|null {
-  const raDeg=sexagesimal(ra,true),decDeg=sexagesimal(dec,false)
-  if(raDeg===null||decDeg===null)return null
-  return {raDeg,decDeg,fovArcmin:fov}
-}
 export default function Sidebar({ra,dec,onRa,onDec,fov,onFov,band,onBand,gaia,onGaia,hasFrames,gaiaWarnings,
   brightness,onBrightness,contrast,onContrast,inverted,onInvert,loading,onSearch,onClose,error}: {
     ra:string;dec:string;onRa:(v:string)=>void;onDec:(v:string)=>void;fov:number;onFov:(v:number)=>void;

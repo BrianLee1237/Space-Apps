@@ -111,6 +111,13 @@ export async function buildDiscoveryReport(record:SavedFinding):Promise<Uint8Arr
   line('Data: SPHEREx / NASA IRSA public archive, retrieved via SPHEREx Explorer')
   section('Notes')
   for(const part of wrap(record.note||'No notes entered.'))line(part)
+  if(record.analysis){
+    section('Analysis provenance')
+    line(`Algorithm version: ${record.analysis.provenance.algorithmVersion}`)
+    for(const part of wrap(`Software SHA256: ${record.analysis.provenance.codeSha256}`))line(part)
+    for(const part of wrap(`Calibration SHA256: ${record.analysis.provenance.calibrationSha256}`))line(part)
+    line('The complete measurement record is attached as spherex-evidence.json.')
+  }
   if(record.candidate){
     section('Unverified candidate')
     line(`ID: ${record.candidate.id}  |  RA ${record.candidate.raDeg.toFixed(6)} deg, Dec ${record.candidate.decDeg.toFixed(6)} deg`)
@@ -153,7 +160,9 @@ export async function buildDiscoveryReport(record:SavedFinding):Promise<Uint8Arr
     pageIds.push(pdf.add(`<< /Type /Page /Parent ${pages} 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${font} 0 R >> /XObject << /Im0 ${imgId} 0 R >> >> /Contents ${stream} 0 R >>`))
   }
   pdf.set(pages,`<< /Type /Pages /Count ${pageIds.length} /Kids [${pageIds.map(id=>`${id} 0 R`).join(' ')}] >>`)
-  pdf.set(catalog,`<< /Type /Catalog /Pages ${pages} 0 R >>`)
+  const evidence=pdf.stream(toBytes(JSON.stringify(record,null,2)),'/Type /EmbeddedFile /Subtype /application#2Fjson')
+  const specification=pdf.add(`<< /Type /Filespec /F (spherex-evidence.json) /EF << /F ${evidence} 0 R >> >>`)
+  pdf.set(catalog,`<< /Type /Catalog /Pages ${pages} 0 R /Names << /EmbeddedFiles << /Names [(spherex-evidence.json) ${specification} 0 R] >> >> >>`)
   return pdf.finish(catalog)
 }
 

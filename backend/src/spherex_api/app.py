@@ -1,6 +1,7 @@
 import logging
 import math
 import os
+from contextlib import asynccontextmanager
 from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -17,6 +18,7 @@ from .frontend import frontend_dist, frontend_router
 from .gaia import GaiaClient
 from .imaging import preview_png
 from .models import Collection, SearchRequest
+from .science import science_router
 from .service import SkyService
 from .targets import TARGETS
 
@@ -27,9 +29,17 @@ def create_app(settings: Settings | None = None, service=None, gaia=None):
     settings = settings or Settings.from_env()
     sky = service or SkyService(settings)
     gaia = gaia or GaiaClient(settings)
+    science, jobs = science_router(sky, gaia)
+
+    @asynccontextmanager
+    async def lifespan(application):
+        yield
+        jobs.close()
+
     app = FastAPI(
         title="SPHEREx Sky API",
         version="0.1.0",
+        lifespan=lifespan,
         description=(
             "Anonymous public-data discovery, native FITS cutouts, quality metadata, "
             "and registered quick-look previews. Coordinates use ICRS. "
@@ -186,6 +196,7 @@ def create_app(settings: Settings | None = None, service=None, gaia=None):
         return Response(payload, media_type="image/png", headers=headers)
 
     app.include_router(frontend_router(sky, gaia))
+    app.include_router(science)
     distribution = frontend_dist()
     if distribution.is_dir():
         app.mount("/", StaticFiles(directory=distribution, html=True), name="frontend")

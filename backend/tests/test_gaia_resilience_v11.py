@@ -7,13 +7,18 @@ from spherex_api.archive import ArchiveError
 from spherex_api.config import Settings
 from spherex_api.gaia import GaiaClient
 
-
 GAIA_JSON = {
     "metadata": [
         {"name": item}
         for item in (
-            "source_id", "ra", "dec", "phot_g_mean_mag",
-            "pmra", "pmdec", "parallax", "ref_epoch",
+            "source_id",
+            "ra",
+            "dec",
+            "phot_g_mean_mag",
+            "pmra",
+            "pmdec",
+            "parallax",
+            "ref_epoch",
         )
     ],
     "data": [[1234567891234567890, 315.419398, 30.882677, 14.2, 1.0, -2.0, 5.0, 2016.0]],
@@ -49,8 +54,9 @@ def test_gaia_esa_502_uses_real_ari_dr3_csv_then_caches(tmp_path):
         if request.url.host == "gea.esac.esa.int":
             return httpx.Response(502, text="upstream down")
         assert request.url.host == "gaia.ari.uni-heidelberg.de"
-        assert b"FORMAT=CSV" in request.content
-        assert b"gaiadr3.gaia_source" in request.content
+        assert request.method == "GET"
+        assert request.url.params["FORMAT"] == "CSV"
+        assert "gaiadr3.gaia_source" in request.url.params["QUERY"]
         return httpx.Response(200, text=GAIA_CSV)
 
     client = GaiaClient(Settings(data_dir=tmp_path), transport=httpx.MockTransport(upstream))
@@ -66,9 +72,11 @@ def test_gaia_esa_502_uses_real_ari_dr3_csv_then_caches(tmp_path):
 
 def test_gaia_falls_back_when_esa_responds_with_invalid_json(tmp_path):
     def upstream(request):
-        return (httpx.Response(200, text="broken")
-                if request.url.host == "gea.esac.esa.int"
-                else httpx.Response(200, text=GAIA_CSV))
+        return (
+            httpx.Response(200, text="broken")
+            if request.url.host == "gea.esac.esa.int"
+            else httpx.Response(200, text=GAIA_CSV)
+        )
 
     client = GaiaClient(Settings(data_dir=tmp_path), transport=httpx.MockTransport(upstream))
     assert len(client.cone_search(315, 31, 0.05, 20)[1]) == 2
