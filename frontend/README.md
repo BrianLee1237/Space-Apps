@@ -1,4 +1,4 @@
-# SKYFRAME frontend
+# SKYFRAME OBSERVATORY frontend
 
 React + TypeScript + Vite + Tailwind. A public sky-region explorer for the NASA Space Apps 2026 SPHEREx challenge.
 

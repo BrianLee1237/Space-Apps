@@ -15,7 +15,7 @@ export default function Navbar({view,onView,settingsOpen,onToggleSettings}:{
   view:ViewName;onView:(view:ViewName)=>void;settingsOpen:boolean;onToggleSettings:()=>void
 }) {
   return <header className="topbar">
-    <div className="brand"><span className="brand-title">SKYFRAME</span></div>
+    <div className="brand"><span className="brand-title">SKYFRAME OBSERVATORY</span></div>
     <nav aria-label="Main navigation" className="nav-links">
       {items.map(item=><button type="button" className={`nav-item ${view===item.id?'nav-item-active':''}`} key={item.id} onClick={()=>onView(item.id)} aria-current={view===item.id?'page':undefined}>{item.label}</button>)}
     </nav>

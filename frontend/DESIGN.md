@@ -1,4 +1,4 @@
-# SKYFRAME frontend design
+# SKYFRAME OBSERVATORY frontend design
 
 - **Product:** A public scientific viewer for comparing time-series SPHEREx observations, NASA Space Apps Challenge 2026.
 - **Approved direction (November 2026):** High-tech celestial mission instrument, based on the team's amber-on-charcoal reference images and the approved celestial-navigator concept. No generated logo, fictional spacecraft dashboard or fake astronomy.

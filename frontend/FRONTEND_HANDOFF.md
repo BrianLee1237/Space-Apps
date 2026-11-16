@@ -1,4 +1,4 @@
-# Backend handoff: SKYFRAME
+# Backend handoff: SKYFRAME OBSERVATORY
 
 Frontend is React+TS+Tailwind v4, with NO bundled fabricated images, dates, flux, candidates, sources, or derived science. The UI requests real data from the API only when the user searches or selects a tool. It handles missing services with actual error states.
 
@@ -30,7 +30,7 @@ All UI files are under `frontend/src/`. Only `src/services/api.ts` contains HTTP
 
 ## No logo
 
-The header says "SKYFRAME" as plain text. No generated brand mark or NASA logo, and no API connection badge.
+The header says "SKYFRAME OBSERVATORY" as plain text. No generated brand mark or NASA logo, and no API connection badge.
 
 ## 3D coordinate navigator (frontend-only)
 

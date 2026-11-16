@@ -1,4 +1,4 @@
-# SKYFRAME — one-command development launcher
+# SKYFRAME OBSERVATORY — one-command development launcher
 
 This patch only adds two files at the **project root** (`start.sh` and this guide).
 It does not modify `frontend/`, `backend/`, `.git/`, or any source code.

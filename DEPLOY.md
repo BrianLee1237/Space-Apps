@@ -1,4 +1,4 @@
-# Deploy SKYFRAME
+# Deploy SKYFRAME OBSERVATORY
 
 The app includes a **single-origin production Dockerfile**: React is built at image-build time, then FastAPI serves both the React files and `/api/*` from the same host. It does not need SPHEREx credentials.
 
