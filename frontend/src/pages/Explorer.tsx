@@ -52,7 +52,6 @@ export default function Explorer(){
   const [selection,setSelection]=useState<Selection>(null)
   const [spectrum,setSpectrum]=useState<SpectrumResponse|null>(null),[spectrumBusy,setSpectrumBusy]=useState(false),[spectrumError,setSpectrumError]=useState('')
   const [discovery,setDiscovery]=useState<DiscoveryResponse|null>(null),[discoveryBusy,setDiscoveryBusy]=useState(false),[discoveryError,setDiscoveryError]=useState('')
-  const [discoveryFrameId,setDiscoveryFrameId]=useState('')
   const [diff,setDiff]=useState<DifferenceResponse|null>(null),[diffBusy,setDiffBusy]=useState(false),[diffError,setDiffError]=useState('')
   const [combine,setCombine]=useState<CombineResponse|null>(null),[combineBusy,setCombineBusy]=useState(false),[combineError,setCombineError]=useState('')
   const [from,setFrom]=useState(0),[to,setTo]=useState(1)
@@ -81,11 +80,16 @@ export default function Explorer(){
   useEffect(()=>{
     if(!playing)return
     diffSeq.current++;combineSeq.current++
-    setDiff(null);setCombine(null);setDiffBusy(false);setCombineBusy(false)
+    setDiff(null);setCombine(null);setDiffBusy(false);setCombineBusy(false);setSliderActive(false)
   },[playing])
   const rawFrame=frames[index]??null
   const frame=rawFrame?{...rawFrame,...(frameDetails.id===rawFrame.id?frameDetails:{})}:null
   const frameId=rawFrame?.id
+  const comparisonDates=[frames[from]?.observedAt,frames[to]?.observedAt].sort()
+  const visibleCandidates=(discovery?.candidates??[]).filter(candidate=>diff?
+    candidate.earlierAt===comparisonDates[0]&&candidate.laterAt===comparisonDates[1]:
+    candidate.laterAt===frame?.observedAt
+  )
   useEffect(()=>{
     if(!frameId)return
     const ctrl=new AbortController()
@@ -144,7 +148,10 @@ export default function Explorer(){
     if(spectrumTimer.current!==null){clearTimeout(spectrumTimer.current);spectrumTimer.current=null}
     setSpectrumBusy(false)
   }
-  function changeIndex(i:number){diffSeq.current++;combineSeq.current++;cancelSpectrum();setDiffBusy(false);setCombineBusy(false);setIndex(i);setPlaying(false);setDiff(null);setCombine(null);setSpectrum(null);setSelection(null)}
+  function cancelTracking(){
+    trackSeq.current++;setTrack(null);setTrackBusy(false);setTrackError('')
+  }
+  function changeIndex(i:number){diffSeq.current++;combineSeq.current++;cancelSpectrum();cancelTracking();setDiffBusy(false);setCombineBusy(false);setIndex(i);setPlaying(false);setDiff(null);setCombine(null);setSliderActive(false);setSpectrum(null);setSelection(null)}
   function queueSpectrum(request:SpectrumRequest){
     cancelSpectrum()
     const requestId=specSeq.current
@@ -163,11 +170,17 @@ export default function Explorer(){
       })
     },250)
   }
-  function inspect(point:ImageLocation){if(!frame)return;setSelection({type:'image',point})
+  function inspect(point:ImageLocation){if(!frame)return;cancelTracking();setSelection({type:'image',point})
     queueSpectrum({observationId:frame.id,xFraction:point.xFraction,yFraction:point.yFraction})
   }
-  function inspectCandidate(candidate:Candidate){setSelection({type:'candidate',candidate});setView('spectrum')
-    queueSpectrum({observationId:frame?.id,raDeg:candidate.raDeg,decDeg:candidate.decDeg})
+  function inspectCandidate(candidate:Candidate){
+    cancelTracking();diffSeq.current++;combineSeq.current++;setDiffBusy(false);setCombineBusy(false)
+    const candidateIndex=frames.findIndex(observation=>observation.observedAt===candidate.laterAt)
+    const observation=candidateIndex>=0?frames[candidateIndex]:frame
+    if(candidateIndex>=0)setIndex(candidateIndex)
+    setPlaying(false);setDiff(null);setCombine(null);setSliderActive(false);setViewerMode('observations')
+    setSelection({type:'candidate',candidate});setView('spectrum')
+    queueSpectrum({observationId:observation?.id,raDeg:candidate.raDeg,decDeg:candidate.decDeg})
   }
   const selectedMatchedPair=matches?.pairs.find(pair=>
     frames[from]?.id===pair.fromId&&frames[to]?.id===pair.toId
@@ -205,14 +218,15 @@ export default function Explorer(){
   async function scan(){
     if(!target||frames.length<2)return
     const requestId=++discoverySeq.current
-    setDiscovery(null);setDiscoveryError('');setDiscoveryBusy(true);setSliderActive(false)
+    diffSeq.current++;combineSeq.current++;setDiffBusy(false);setCombineBusy(false)
+    setDiff(null);setCombine(null);setDiscovery(null);setDiscoveryError('');setDiscoveryBusy(true);setSliderActive(false);setPlaying(false)
     try{
       const selected=spreadFrames(frames)
       const result=await getCandidates(target,selected)
       if(discoverySeq.current!==requestId)return
       setDiscovery(result)
-      setDiscoveryFrameId(result.candidates[0]?.laterAt?
-        (frames.find(f=>f.observedAt===result.candidates[0].laterAt)?.id??selected[selected.length-1].id):selected[selected.length-1].id)
+      const candidateIndex=frames.findIndex(observation=>observation.observedAt===result.candidates[0]?.laterAt)
+      if(candidateIndex>=0)setIndex(candidateIndex)
       setViewerMode('observations')
     }catch(e){if(discoverySeq.current===requestId)setDiscoveryError(e instanceof Error?e.message:'Candidate scan unavailable.')}
     finally{if(discoverySeq.current===requestId)setDiscoveryBusy(false)}
@@ -254,7 +268,7 @@ export default function Explorer(){
       {settingsOpen&&<Sidebar ra={ra} dec={dec} onRa={setRa} onDec={setDec} fov={fov} onFov={updateFov} band={band} onBand={updateBand} gaia={gaiaEnabled} onGaia={setGaiaEnabled} hasFrames={!!frame} gaiaWarnings={gaia?.warnings} brightness={brightness} onBrightness={setBrightness} contrast={contrast} onContrast={setContrast} inverted={inverted} onInvert={setInverted} loading={status==='loading'} error={status==='error'?loadError:''} onSearch={t=>{setView('explorer');if(window.innerWidth<950)setSettingsOpen(false);void loadObservations(t)}} onClose={()=>setSettingsOpen(false)}/>}
       <div className="viewer-workspace">
         <div className="viewer-mode-header"><div className="viewer-mode-title"><strong>{viewerMode==='globe'?'Celestial navigator':target?.name||'SPHEREx observations'}</strong><small>{viewerMode==='globe'?'Click the globe to select coordinates':'SPHEREx image viewer'}</small></div><div className="viewer-mode-buttons" role="group" aria-label="Viewer mode"><button aria-pressed={viewerMode==='globe'} className={viewerMode==='globe'?'mode-active':''} onClick={()=>setViewerMode('globe')}>Navigator</button><button aria-pressed={viewerMode==='observations'} className={viewerMode==='observations'?'mode-active':''} onClick={()=>setViewerMode('observations')}>Observations</button></div></div>
-        <div className="viewer-mode-content">{viewerMode==='globe'?<CelestialNavigator selectedRa={parseSkyCoordinates(ra,dec,fov)?.raDeg??null} selectedDec={parseSkyCoordinates(ra,dec,fov)?.decDeg??null} fovArcmin={fov} loading={status==='loading'} onPick={(r,d)=>{setRa(r.toFixed(6));setDec(d.toFixed(6))}} onSearch={()=>{const picked=parseSkyCoordinates(ra,dec,fov);if(picked)void loadObservations(picked)}}/>:sliderActive&&selectedMatchedPair&&frames[from]&&frames[to]?<BeforeAfterSlider earlier={frames[from]} later={frames[to]} onClose={()=>setSliderActive(false)}/>:<SkyViewer frame={frame} track={track} differenceUrl={diff?.imageUrl} combineUrl={combine?.imageUrl} status={status} error={loadError} candidates={diff||frame?.id===discoveryFrameId?discovery?.candidates??[]:[]} gaia={gaia} brightness={brightness} contrast={contrast} inverted={inverted} onInspect={p=>void inspect(p)} onCandidate={c=>void inspectCandidate(c)}/>}
+        <div className="viewer-mode-content">{viewerMode==='globe'?<CelestialNavigator selectedRa={parseSkyCoordinates(ra,dec,fov)?.raDeg??null} selectedDec={parseSkyCoordinates(ra,dec,fov)?.decDeg??null} fovArcmin={fov} loading={status==='loading'} onPick={(r,d)=>{setRa(r.toFixed(6));setDec(d.toFixed(6))}} onSearch={()=>{const picked=parseSkyCoordinates(ra,dec,fov);if(picked)void loadObservations(picked)}}/>:sliderActive&&selectedMatchedPair&&frames[from]&&frames[to]?<BeforeAfterSlider earlier={frames[from]} later={frames[to]} onClose={()=>setSliderActive(false)}/>:<SkyViewer frame={frame} track={track} differenceUrl={diff?.imageUrl} combineUrl={combine?.imageUrl} status={status} error={loadError} candidates={visibleCandidates} gaia={gaia} brightness={brightness} contrast={contrast} inverted={inverted} onInspect={p=>void inspect(p)} onCandidate={c=>void inspectCandidate(c)}/>}
         {loadError&&status==='ready'&&<div className="overlay-error" role="alert"><AlertTriangle size={15}/>{loadError}<button type="button" onClick={()=>setLoadError('')} aria-label="Dismiss error">×</button></div>}
         </div>
       </div>

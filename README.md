@@ -45,31 +45,34 @@ Difference imaging is implemented: `/api/difference` and `/v1`-backed
 `/api/difference.png` resample two observations onto one shared ICRS grid and
 render a zero-centered, red/blue diverging quick-look PNG (to minus from). It is
 a quick-look subtraction that retains calibrated surface-brightness input units,
-with no PSF matching or photometric/background fitting. The response describes
-these limits in its `warnings`. The two frames are reordered into true
+with robust constant-background correction and Gaussian PSF homogenization when
+both headers provide usable PSF widths. Photometric scaling, spatial background
+models, and propagated difference uncertainties remain pending. The response
+describes these limits in its `warnings`. The two frames are reordered into true
 chronological order by their own observation time regardless of which one the
 caller labeled `fromId`/`toId`, with a warning if that required a swap or if
 the two frames came from searches with a different field center or FOV.
 
 The Gaia DR3 catalog overlay is implemented: `/api/overlays?observationId=...`
-queries ESA's public Gaia Archive TAP+ service for sources within the frame's
-field, applies a linear proper-motion approximation from each source's own
+queries ESA's public Gaia Archive TAP+ service with an ARI mirror fallback
+and cached cone searches for sources within the frame's field, applies a linear proper-motion approximation from each source's own
 Gaia DR3 reference epoch to the observation's own epoch, and projects them
 onto the same output grid the preview PNG uses. No parallax or radial-velocity
 correction is applied; the response's `warnings` say so, including when a
 source had no proper-motion solution at all.
 
-Candidate detection is implemented: `/api/candidates?ra=&dec=&fov=&ids=...`
-takes the earliest and latest of the given observations by actual observation
-time, differences them, subtracts a local median background (two independent
-exposures rarely share the same large-scale zodiacal/flat-fielding background),
-and flags blobs far above the noise as candidates. A brightened blob paired
-with a nearby dimmed blob is reported as a `moving-source`; an unpaired one is
-a `brightness-change`. This is a best-effort statistical screen, not a
-validated pipeline: it has no PSF fitting or catalog cross-match, pixels near
-a bright/saturated star are excluded as likely detector overflow rather than
-real flux, and the response's `warnings` say so. At most the 8 most
-significant candidates are returned per request.
+Candidate detection is implemented through `/api/candidates?ra=&dec=&fov=&ids=...`.
+It selects up to three disjoint same-detector, wavelength-compatible epoch pairs
+from the requested observations, subtracts local median backgrounds, and detects
+strong residual blobs. Positive/negative residual pairs can be marked as possible
+motion. Repeated residual locations are grouped provisionally, with up to twelve
+candidates returned. The supporting-pair count describes image evidence and
+requires further object association and false-positive validation.
+
+The **Find changes** action advances to an evidence epoch. Captions appear on
+their corresponding observations. Source tracking, the before/after slider, and
+PDF evidence exports are available in the latest frontend. Scientific limits
+and remaining work are recorded in [the requirements review](REQUIREMENTS_REVIEW.md).
 
 Channel selection uses the bundled official 102-channel calibration windows.
 `mode=channel&index=1-102` chooses the associated detector, inspects the actual
@@ -85,14 +88,14 @@ quality-bit masking available through the API. Warnings describe mixed detector
 bands, variable wavelength, and blurring of moving sources. The UI combines the
 currently displayed epochs.
 
-Clicking an image or a candidate requests `/api/spectrum`. Brian's six-detector
-extraction is retained, with up to six temporally distributed samples per detector.
-Each point includes its actual native-pixel wavelength, surface brightness,
+Clicking an image or candidate requests `/api/spectrum` with its observation
+context. This fast path reuses up to 24 locally cached native FITS exposures and
+can cover only one detector. A direct RA/Dec request without observation context
+uses the broader six-detector extraction path, with up to six temporal samples
+per detector. Each point includes its native-pixel wavelength, surface brightness,
 variance-derived uncertainty, quality flags, and observation date. Invalid and
-artifact-flagged pixels are skipped. The plot shows individual samples with error
-bars and hover details. Coverage depends on the available exposures, and dates
-can differ across samples. PSF-fit photometry and complete 102-channel spectra
-remain future work.
+artifact-flagged pixels are skipped. The plot shows samples with error bars and
+hover details. PSF-fit photometry and complete 102-channel spectra remain pending.
 
 Wavelength can vary between exposures within one detector. Use the
 wavelength metadata from the `/v1` API when assessing motion or variability.
