@@ -129,4 +129,4 @@ export type MotionTrack = {
   warnings:string[];method:string
 }
 
-export type ViewName = 'explorer' | 'motion' | 'discover' | 'spectrum' | 'compare' | 'notebook' | 'guide'
+export type ViewName = 'shift-stack' | 'explorer' | 'motion' | 'discover' | 'spectrum' | 'compare' | 'notebook' | 'guide'

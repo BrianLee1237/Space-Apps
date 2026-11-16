@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import Navbar from '../components/Navbar'
+import MotionStack from '../components/MotionStack'
 import Sidebar, { parseSkyCoordinates } from '../components/Sidebar'
 import CelestialNavigator from '../components/CelestialNavigator'
 import SkyViewer from '../components/SkyViewer'
@@ -24,7 +25,7 @@ function readNotes():SavedFinding[] {
 }
 export default function Explorer(){
   const [viewerMode,setViewerMode]=useState<'globe'|'observations'>('globe')
-  const [view,setView]=useState<ViewName>('explorer')
+  const [view,setView]=useState<ViewName>(()=>new URLSearchParams(window.location.search).get('view')==='shift-stack'?'shift-stack':'explorer')
   const [settingsOpen,setSettingsOpen]=useState(true)
   const [ra,setRa]=useState(''),[dec,setDec]=useState(''),[fov,setFov]=useState(10)
   const [band,setBand]=useState<BandSelection>({mode:'auto'})
@@ -257,7 +258,10 @@ export default function Explorer(){
     setNotes(old=>[finding,...old])
   }
   return <div className="app-shell">
-    <Navbar view={view} onView={setView} settingsOpen={settingsOpen} onToggleSettings={()=>setSettingsOpen(v=>!v)}/>
+    <Navbar view={view} onView={next=>{if(next==='shift-stack')setPlaying(false);setView(next)}}
+      settingsOpen={view!=='shift-stack'&&settingsOpen}
+      onToggleSettings={()=>{if(view==='shift-stack'){setView('explorer');setSettingsOpen(true)}else setSettingsOpen(v=>!v)}}/>
+    {view==='shift-stack'?<MotionStack/>:<>
     <div className="epoch-toolbar">
       <button type="button" className="search-open" onClick={()=>setSettingsOpen(true)}>Coordinates</button>
       <label>Time spacing <select aria-label="Minimum epoch separation" value={epochDays} onChange={e=>setEpochDays(Number(e.target.value))}><option value={0}>All exposures</option><option value={1}>At least 1 day</option><option value={30}>At least 30 days</option><option value={180}>At least 180 days</option></select></label>
@@ -275,5 +279,6 @@ export default function Explorer(){
       <Inspector view={view} frame={frame} frames={frames} selection={selection} spectrum={spectrum} spectrumBusy={spectrumBusy} spectrumError={spectrumError} discovery={discovery} discoveryBusy={discoveryBusy} discoveryError={discoveryError} track={track} trackBusy={trackBusy} trackError={trackError} onTrack={()=>void runTracking()} onScan={()=>void scan()} onCandidate={c=>void inspectCandidate(c)} diff={diff} diffBusy={diffBusy} diffError={diffError} compareFrom={from} compareTo={to} onFrom={setFrom} onTo={setTo} onGenerateDifference={()=>void compare()} onClearDifference={()=>setDiff(null)} matches={matches} matchBusy={matchBusy} matchError={matchError} onFindMatches={()=>void findMatches()} matchedPair={selectedMatchedPair} sliderActive={sliderActive} onToggleSlider={toggleSlider} combine={combine} combineBusy={combineBusy} combineError={combineError} onGenerateCombine={()=>void combineStack()} onClearCombine={()=>setCombine(null)} target={target} notes={notes} onSaveNote={saveNote} onDeleteNote={id=>setNotes(v=>v.filter(item=>item.id!==id))} onGuideTarget={name=>void guidedSearch(name)} guideBusy={guideBusy} activeGuide={activeGuide} onGoCompare={()=>{setView('compare');void findMatches()}} onGoDiscover={()=>setView('discover')} onGoMotion={()=>setView('motion')} onGoNotebook={()=>setView('notebook')} searchWarnings={searchWarnings}/>
       <Timeline frames={frames} index={index} onIndex={changeIndex} playing={playing} onPlaying={setPlaying} speed={speed} onSpeed={setSpeed}/>
     </div>
+    </>}
   </div>
 }
