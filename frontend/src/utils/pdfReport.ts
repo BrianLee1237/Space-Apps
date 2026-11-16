@@ -108,7 +108,7 @@ export async function buildDiscoveryReport(record:SavedFinding):Promise<Uint8Arr
   line(`Saved: ${record.savedAt}`)
   line(`RA ${record.target.raDeg.toFixed(7)} deg  |  Dec ${record.target.decDeg.toFixed(7)} deg`)
   line(`Field: ${record.target.fovArcmin} arcmin  |  Target: ${record.target.name||'Coordinate selection'}`)
-  line('Data: SPHEREx / NASA IRSA public archive, retrieved via SPHEREx Explorer')
+  line('Data: SPHEREx / NASA IRSA public archive, retrieved via SKYFRAME')
   section('Notes')
   for(const part of wrap(record.note||'No notes entered.'))line(part)
   if(record.analysis){

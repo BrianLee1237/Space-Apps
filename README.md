@@ -1,4 +1,4 @@
-# SPHEREx Explorer
+# SKYFRAME
 
 The existing React frontend is connected to the SPHEREx FastAPI backend through its
 `/api` contract. FastAPI also serves the compiled frontend, so the application can
