@@ -16,13 +16,11 @@ export default function Navbar({
   onView,
   settingsOpen,
   onToggleSettings,
-  hasObservations,
 }: {
   view: ViewName
   onView: (view: ViewName) => void
   settingsOpen: boolean
   onToggleSettings: () => void
-  hasObservations: boolean
 }) {
   return (
     <header className="topbar">
@@ -30,23 +28,17 @@ export default function Navbar({
         <span className="brand-title">SKYFRAME OBSERVATORY</span>
       </div>
       <nav aria-label="Main navigation" className="nav-links">
-        {items
-          .filter(
-            (item) =>
-              hasObservations ||
-              !['motion', 'discover', 'spectrum', 'compare'].includes(item.id),
-          )
-          .map((item) => (
-            <button
-              type="button"
-              className={`nav-item ${view === item.id ? 'nav-item-active' : ''}`}
-              key={item.id}
-              onClick={() => onView(item.id)}
-              aria-current={view === item.id ? 'page' : undefined}
-            >
-              {item.label}
-            </button>
-          ))}
+        {items.map((item) => (
+          <button
+            type="button"
+            className={`nav-item ${view === item.id ? 'nav-item-active' : ''}`}
+            key={item.id}
+            onClick={() => onView(item.id)}
+            aria-current={view === item.id ? 'page' : undefined}
+          >
+            {item.label}
+          </button>
+        ))}
       </nav>
       <button
         type="button"

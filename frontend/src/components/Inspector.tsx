@@ -80,6 +80,7 @@ export default function Inspector({
   onGoDiscover,
   onGoMotion,
   onGoNotebook,
+  onGoGuide,
   searchWarnings,
 }: {
   view: ViewName
@@ -130,6 +131,7 @@ export default function Inspector({
   onGoDiscover: () => void
   onGoMotion: () => void
   onGoNotebook: () => void
+  onGoGuide: () => void
   searchWarnings?: string[]
 }) {
   const [explorerTab, setExplorerTab] = useState<'details' | 'metadata'>(
@@ -176,6 +178,24 @@ export default function Inspector({
           <h2>{currentTitle}</h2>
         )}
       </div>
+      {!frames.length &&
+        ['motion', 'discover', 'spectrum', 'compare'].includes(view) && (
+          <section className="inspector-body" aria-label="Load dated observations">
+            <strong>Dated observations required</strong>
+            <p className="section-explainer">
+              Choose a saved observation field above or open a challenge target
+              in Guide to use this tool. Motion, candidate highlighting and
+              comparison require at least two exposures.
+            </p>
+            <button
+              className="secondary-button full-button"
+              type="button"
+              onClick={onGoGuide}
+            >
+              Open guided targets
+            </button>
+          </section>
+        )}
       {candidate && (
         <section className="change-explanation" aria-live="polite">
           <strong>

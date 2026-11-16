@@ -453,7 +453,7 @@ export default function Explorer() {
         setFrames([])
         setStatus('empty')
         setSearchWarnings(data.warnings ?? [])
-        setView('science')
+        setView((current) => (current === 'explorer' ? 'science' : current))
         return
       }
       const findRestored = (key: string, fallback: number) => {
@@ -951,7 +951,6 @@ export default function Explorer() {
     <div className="app-shell">
       <Navbar
         view={view}
-        hasObservations={frames.length > 0}
         onView={(next) => {
           if (next === 'shift-stack' || next === 'science') setPlaying(false)
           if (next === 'explorer' && !frames.length) setViewerMode('globe')
@@ -1052,7 +1051,11 @@ export default function Explorer() {
                         setRa(String(field.raDeg))
                         setDec(String(field.decDeg))
                         setFov(field.fovArcmin)
-                        setView('explorer')
+                        setView((current) =>
+                          ['motion', 'discover', 'spectrum', 'compare'].includes(current)
+                            ? current
+                            : 'explorer',
+                        )
                         void loadObservations(field, { mode: 'auto' })
                       }
                     }}
@@ -1303,6 +1306,7 @@ export default function Explorer() {
               onGoDiscover={() => setView('discover')}
               onGoMotion={() => setView('motion')}
               onGoNotebook={() => setView('notebook')}
+              onGoGuide={() => setView('guide')}
               searchWarnings={searchWarnings}
             />
             {frames.length > 0 && view !== 'science' && (

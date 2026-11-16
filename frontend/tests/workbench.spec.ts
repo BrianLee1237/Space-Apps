@@ -237,7 +237,7 @@ test('transient image failures retry the same exposure', async ({ page }) => {
   ).toHaveCount(0)
 })
 
-test('unavailable live actions are removed and unknown fields open the sky atlas', async ({
+test('unknown fields open the atlas and all tool tabs remain accessible during outages', async ({
   page,
 }) => {
   await page.route('**/atlas.html', (route) =>
@@ -306,6 +306,37 @@ test('unavailable live actions are removed and unknown fields open the sky atlas
   await expect(
     page.getByRole('radio', { name: 'Detector (1–6)', exact: true }),
   ).toHaveCount(0)
+  await expect(
+    page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button'),
+  ).toHaveCount(9)
+  for (const name of ['Motion', 'Discover', 'Spectrum', 'Compare']) {
+    await page.getByRole('button', { name, exact: true }).click()
+    await expect(page.getByRole('button', { name, exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    await expect(page.getByText('Dated observations required', { exact: true })).toBeVisible()
+  }
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Compare', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
+  await expect(page.getByText('Dated observations required', { exact: true })).toBeVisible()
+  await page.getByLabel('Saved observation fields').selectOption('0')
+  await expect(page.locator('.sky-image')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Compare', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
+  await expect(page.getByText('Dated observations required', { exact: true })).toHaveCount(0)
+  await page.getByLabel('Right ascension (RA)', { exact: true }).fill('17')
+  await page.getByLabel('Declination (Dec)', { exact: true }).fill('6')
+  await page.getByRole('button', { name: 'Explore sky', exact: true }).click()
+  await expect(page.getByTitle('Real SPHEREx infrared sky atlas')).toBeVisible()
+  await page.getByRole('button', { name: 'Motion', exact: true }).click()
+  await page.getByRole('button', { name: 'Open guided targets', exact: true }).click()
+  await expect(page.getByRole('button', { name: /Barnard's Star/ })).toBeVisible()
   await page.getByLabel('Saved observation fields').selectOption('0')
   await expect(page.locator('.sky-image')).toBeVisible()
   await expect(
