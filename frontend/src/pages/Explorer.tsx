@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import Navbar from '../components/Navbar'
+import MotionStack from '../components/MotionStack'
 import Sidebar from '../components/Sidebar'
 import { parseSkyCoordinates } from '../services/coordinates'
 import CelestialNavigator from '../components/CelestialNavigator'
@@ -74,6 +75,7 @@ export default function Explorer() {
       [
         'explorer',
         'science',
+        'shift-stack',
         'motion',
         'discover',
         'spectrum',
@@ -865,10 +867,19 @@ export default function Explorer() {
     <div className="app-shell">
       <Navbar
         view={view}
-        onView={setView}
-        settingsOpen={settingsOpen}
-        onToggleSettings={() => setSettingsOpen((v) => !v)}
+        onView={(next) => {
+          if (next === 'shift-stack') setPlaying(false)
+          setView(next)
+        }}
+        settingsOpen={view !== 'shift-stack' && settingsOpen}
+        onToggleSettings={() => {
+          if (view === 'shift-stack') {
+            setView('explorer')
+            setSettingsOpen(true)
+          } else setSettingsOpen((value) => !value)
+        }}
       />
+      {view === 'shift-stack' ? <MotionStack /> : <>
       <div className="epoch-toolbar">
         <button
           type="button"
@@ -1140,6 +1151,7 @@ export default function Explorer() {
           onSpeed={setSpeed}
         />
       </div>
+      </>}
     </div>
   )
 }

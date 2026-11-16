@@ -133,3 +133,22 @@ change captions and arrows, and on-demand wavelength/quality metadata. It connec
 the 3D navigator to the archive search and protects asynchronous comparison results
 against changes of field, epoch selection, and display mode. See
 [the requirements review](REQUIREMENTS_REVIEW.md) for scientific and hosting limits.
+
+## Shift & Stack
+
+Open **Shift & Stack** in the navigation, or go to `/?view=shift-stack`.
+Compare four archived SPHEREx 3I/ATLAS exposures with the stars held fixed,
+with the comet centered at its published IRSA position, or along a trial path.
+Both previews use the same brightness stretch. The practice hunt adds a
+simulated source to a nearby real SPHEREx field and ranks 81 trial paths using
+two exposures. It reports the winning path's contrast on the remaining two.
+
+The compact, bundled quick-look cutouts use QR2 detector 5, a common sky grid,
+a median background per frame, and a 0.0025 MJy/sr storage step. Original FITS
+files and their wavelengths are available in the app. The aligned view mixes
+nearby wavelengths and is intended for visualization.
+[IRSA's 3I/ATLAS dataset](https://irsa.ipac.caltech.edu/data/SPHEREx/docs/comet3iatlas/index.html)
+
+To regenerate the images, run `uv run python scripts/build_comet_demo.py`
+from `backend`. From `frontend`, run `node --test tests/motionStack.test.mjs`
+with Node 24 to check the real comet recovery and the practice scan.

@@ -181,6 +181,7 @@ export type MotionTrack = {
 }
 
 export type ViewName =
+  | 'shift-stack'
   | 'explorer'
   | 'science'
   | 'motion'
