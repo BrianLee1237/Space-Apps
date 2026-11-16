@@ -1,0 +1,18 @@
+/* Infrared Observatory. Interface colors are independent of FITS image rendering. */
+:root {
+  --base: #0d1425;
+  --panel: #192541;
+  --panel2: #223252;
+  --field: #111b30;
+  --line: #354667;
+  --subtle-line: #263550;
+  --text: #f1f5ff;
+  --muted: #b7c3d7;
+  --subdued: #9aaac1;
+  --accent: #ffb45d;
+  --accent-hi: #ffd093;
+  --accent-ink: var(--base);
+  --accent-soft: color-mix(in srgb, var(--accent) 17%, var(--field));
+  --data: #6ddcff;
+  --data-soft: color-mix(in srgb, var(--data) 15%, transparent);
+}

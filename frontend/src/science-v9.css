@@ -16,9 +16,9 @@
 .comparison-heading strong {font-weight:610}
 .comparison-heading-label {display:flex;flex-direction:column;gap:4px}
 .comparison-heading span {font-size:11px;color:#aab7c0;text-align:left}
-.comparison-close {display:inline-flex;align-items:center;justify-content:center;gap:6px;flex-shrink:0;min-height:34px;padding:6px 11px;border:1px solid #56606b;border-radius:5px;background:#202833;color:#f4f1eb;font-size:12px;font-weight:550;cursor:pointer}
+.comparison-close {display:inline-flex;align-items:center;justify-content:center;gap:6px;flex-shrink:0;min-height:34px;padding:6px 11px;border:1px solid #56606b;border-radius:5px;background:var(--panel2);color:#f4f1eb;font-size:12px;font-weight:550;cursor:pointer}
 .comparison-close:hover {background:#313d4a;border-color:#aab6c0}
-.comparison-close:focus-visible {outline:2px solid #e5c08e;outline-offset:2px}
+.comparison-close:focus-visible {outline:2px solid var(--data);outline-offset:2px}
 .comparison-stage {position:relative;flex:0 1 auto;width:min(100%,530px,56vh);aspect-ratio:1;max-height:calc(100% - 143px);min-height:140px;cursor:ew-resize;touch-action:none;overflow:hidden;background:#06080b;border:1px solid #404950;box-shadow:0 10px 34px #0005;}
 .comparison-stage img {position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;user-select:none}
 .comparison-before-image {z-index:1}
@@ -27,10 +27,10 @@
 .comparison-image-label {position:absolute;z-index:3;top:12px;background:#0b121dd9;border:1px solid #3e4650;border-radius:4px;color:#f7f5ef;font-size:11px;padding:6px 8px;pointer-events:none}
 .comparison-image-label.earlier {left:12px}.comparison-image-label.later {right:12px}
 .comparison-scrubber {display:flex;align-items:center;gap:17px;width:100%;max-width:530px;font-size:11px;color:#c5c9c9}
-.comparison-scrubber input {flex:1;accent-color:#c9b59c;min-width:80px;cursor:ew-resize}
+.comparison-scrubber input {flex:1;accent-color:var(--accent);min-width:80px;cursor:ew-resize}
 .comparison-caveat {font-size:11px;color:#a9b2b8;line-height:1.45;max-width:530px;margin:0}
 .comparison-failure {font-size:13px;color:#f1bdb8;padding:25px 10px}
-.guided-steps {border:1px solid #3d454d;border-radius:7px;padding:14px;margin:0 0 18px;background:#171e25}
+.guided-steps {border:1px solid #3d454d;border-radius:7px;padding:14px;margin:0 0 18px;background:var(--panel)}
 .guided-steps>strong {font-size:14px;color:#f2eee6}.guided-steps p {font-size:12px;line-height:1.5;color:#c1cbd2;margin:8px 0 14px}
 .guided-steps>div {display:flex;align-items:start;gap:7px;color:#c0cad1;font-size:11px;line-height:1.4;margin:9px 0}
 .guided-steps>div svg {flex-shrink:0;color:#9ebdaf;margin-top:1px}
@@ -38,7 +38,7 @@
 .guided-steps button:disabled {color:#77838b}
 .guided-steps button:hover:not(:disabled) {color:#f9eddb}
 .guided-steps small {display:block;color:#9baab3;font-size:11px;line-height:1.5;margin-top:12px}
-.guide-target-selected {color:#f0ddc4;background:#1e262d}
+.guide-target-selected {color:#f0ddc4;background:var(--accent-soft)}
 .entry-actions {justify-content:flex-start;gap:13px;flex-wrap:wrap}
 .entry-actions button:focus-visible,.guided-steps button:focus-visible {outline:2px solid #d6c2a8;outline-offset:2px}
 @media (max-width:690px) {

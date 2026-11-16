@@ -110,9 +110,9 @@ function LightCurve({
               x2={x(times[i])}
               y1={y(point.flux - point.uncertainty)}
               y2={y(point.flux + point.uncertainty)}
-              stroke="#d6ad74"
+              stroke="var(--data)"
             />
-            <circle cx={x(times[i])} cy={y(point.flux)} r="4" fill="#ecc58d" />
+            <circle cx={x(times[i])} cy={y(point.flux)} r="4" fill="var(--data)" />
           </g>
         ))}
         <text x="58" y="248">
@@ -188,9 +188,9 @@ function WavelengthTime({
                       style={{
                         background: cell
                           ? change >= 0
-                            ? `rgba(223,174,101,${intensity})`
-                            : `rgba(85,163,200,${intensity})`
-                          : '#111720',
+                            ? `color-mix(in srgb, var(--accent) ${intensity * 100}%, transparent)`
+                            : `color-mix(in srgb, var(--data) ${intensity * 100}%, transparent)`
+                          : 'var(--field)',
                       }}
                       title={
                         cell

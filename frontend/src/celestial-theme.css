@@ -1,17 +1,4 @@
 /* Celestial navigation: frontend-only visual system. The sky image is always backend-supplied. */
-:root {
-  --base: #06080a;
-  --panel: #0b0f12;
-  --panel2: #11161a;
-  --field: #0b1013;
-  --line: #293033;
-  --subtle-line: #1e2528;
-  --text: #eeeae3;
-  --muted: #a4a9a6;
-  --subdued: #88908b;
-  --accent: #e4ab69;
-  --accent-hi: #f1c48a;
-}
 body { background: var(--base); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; }
 .app-shell { background: var(--base); }
 .topbar { background: #070a0c; border-bottom: 1px solid #2c3134; }
@@ -22,7 +9,7 @@ body { background: var(--base); color: var(--text); font-family: -apple-system, 
 .nav-item:hover { background: #15191b; color: #f3ece3; }
 .nav-item-active { color: #f9f0e8; background: #141719; border-bottom-color: var(--accent); }
 .settings-trigger { border-color: #2e3537; background: #101519; color: #cdd0cb; border-radius: 3px; font-size: 12px; }
-.settings-trigger:hover,.settings-trigger-active { color: #f4e7d7; background: #1b1a17; border-color: #745234; }
+.settings-trigger:hover,.settings-trigger-active { color: var(--accent-hi); background: var(--accent-soft); border-color: var(--accent); }
 .settings-trigger-active svg:first-child { color: var(--accent); }
 .sidebar { background: var(--panel); border-right-color: var(--line); }
 .sidebar-heading { color: #c9c8c2; font-size: 11px; letter-spacing: .13em; }
@@ -54,15 +41,15 @@ body { background: var(--base); color: var(--text); font-family: -apple-system, 
 .viewer-mode-content { flex: 1; min-height: 0; position: relative; overflow: hidden; background: #06090a; }
 .sky-viewer,.sky-viewer:fullscreen { background: #05080a; }
 .viewer-tools button { color: #ddd2c5; border-color: #3b3d3b; background: #141719; border-radius: 2px; }
-.viewer-tools button:hover:not(:disabled) { color: #f6d3a8; background: #211a13; border-color: #99704a; }
+.viewer-tools button:hover:not(:disabled) { color: var(--data); background: var(--panel2); border-color: var(--data); }
 .viewer-tag span:first-child { border-radius: 2px; background: #231c14; border-color: #78583c; color: #edc58d; }
 .viewer-bottom-info { color: #a5afa8; }
 .viewer-empty svg { color: #737b75; }
 .viewer-empty strong { color: #e7e8e3; }
 .viewer-empty span { color: #97a09a; }
 .loading-indicator { border-color: #48413b; border-top-color: var(--accent); }
-.gaia-marker { width: 7px; height: 7px; border-radius: 50%; border: 1px solid #e2c297; rotate: 0deg; background: rgba(230,174,98,.1); }
-.candidate-marker { border-color: #ebc47b; background: rgba(200,151,75,.12); }
+.gaia-marker { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--data); rotate: 0deg; background: var(--data-soft); }
+.candidate-marker { border-color: var(--accent); background: var(--accent-soft); }
 .inspector { background: #0b0f12; border-left-color: #2b3032; }
 .inspector-header { background: #0b0f12; border-bottom-color: #293234; }
 .inspector-header h2 { font-size: 13px; }
@@ -100,11 +87,11 @@ body { background: var(--base); color: var(--text); font-family: -apple-system, 
 .celestial-top-left { left: 27px; }.celestial-top-right { right: 27px; text-align: right; }
 .system-caption { font-size: 10px; color: #c7c4b9; text-transform: uppercase; letter-spacing: .14em; font-weight: 690; }
 .celestial-top-left small,.celestial-top-right small { color: #8e9790; font-size: 10px; letter-spacing: .02em; }
-.nav-separator { color: #ad854f; padding: 0 9px; }
+.nav-separator { color: var(--data); padding: 0 9px; }
 .navigator-canvas-wrap { position: absolute; inset: 35px 10px 70px; display: flex; align-items: center; justify-content: center; }
 .celestial-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: none; outline: none; }
 .celestial-canvas:active { cursor: grabbing; }
-.celestial-canvas:focus-visible { outline: 1px solid #d49b5d; outline-offset: -20px; }
+.celestial-canvas:focus-visible { outline: 1px solid var(--data); outline-offset: -20px; }
 .celestial-controls { position: absolute; right: 22px; top: 114px; z-index: 4; display: flex; flex-direction: column; gap: 6px; }
 .celestial-controls button { width: 35px; height: 35px; display: grid; place-items: center; background: #151a1b; color: #d5c5b4; border: 1px solid #3b4241; border-radius: 3px; }
 .celestial-controls button:hover { background: #2a2016; border-color: #aa7844; color: #f9d8a9; }
@@ -116,7 +103,7 @@ body { background: var(--base); color: var(--text); font-family: -apple-system, 
 .celestial-bottom-right strong span { color: #86745e; margin: 0 4px; }
 .celestial-bottom-right small { color: #87958b; font-size: 10px; }
 .nav-load-button { margin-top: 5px; padding: 0 11px; height: 35px; background: #dfaa6d; color: #201408; border: 1px solid #e6b478; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 11px; font-weight: 720; white-space: nowrap; border-radius: 2px; }
-.nav-load-button:hover:not(:disabled) { background: #f4c18a; }
+.nav-load-button:hover:not(:disabled) { background: var(--accent-hi); }
 .globe-unavailable { position: absolute; z-index: 6; color: #dcc9b0; background: #141719; padding: 20px; font-size: 12px; text-align: center; max-width: 290px; }
 @media(max-width:1070px){.celestial-top-right { display: none; }.celestial-bottom-right { right: 14px; }.celestial-bottom-left { left: 14px; }}
 @media(max-width:690px){

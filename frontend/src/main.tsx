@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
+import './palette.css'
 import './index.css'
 import './celestial-theme.css'
 import './observatory.css'

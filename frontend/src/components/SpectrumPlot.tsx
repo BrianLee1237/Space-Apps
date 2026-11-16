@@ -12,8 +12,8 @@ export default function SpectrumPlot({data}:{data:SpectrumResponse}) {
       {[0,.5,1].map(i=><line key={i} x1="42" x2="301" y1={155-i*126} y2={155-i*126} stroke="#333938" strokeDasharray="3 5"/>) }
       {points.map((p,i)=><g key={i}>
         <title>{p.wavelengthMicron.toFixed(4)} µm · {p.flux.toPrecision(4)} {data.fluxUnit}{p.observedAt?` · ${new Date(p.observedAt).toLocaleString()}`:''}</title>
-        {p.uncertainty!=null&&<line x1={x(p.wavelengthMicron)} x2={x(p.wavelengthMicron)} y1={y(p.flux-p.uncertainty)} y2={y(p.flux+p.uncertainty)} stroke="#c4a06b" strokeWidth="1"/>}
-        <circle cx={x(p.wavelengthMicron)} cy={y(p.flux)} r="2.6" fill="#f1c48a"/>
+        {p.uncertainty!=null&&<line x1={x(p.wavelengthMicron)} x2={x(p.wavelengthMicron)} y1={y(p.flux-p.uncertainty)} y2={y(p.flux+p.uncertainty)} stroke="var(--data)" strokeWidth="1"/>}
+        <circle cx={x(p.wavelengthMicron)} cy={y(p.flux)} r="2.6" fill="var(--data)"/>
       </g>)}
       <text x="42" y="175" className="plot-tick">{xMin.toFixed(2)}</text><text x="298" y="175" textAnchor="end" className="plot-tick">{xMax.toFixed(2)}</text>
       <text x="170" y="191" textAnchor="middle" className="plot-label">Wavelength (µm)</text>

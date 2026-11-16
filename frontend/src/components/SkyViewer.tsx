@@ -192,7 +192,7 @@ export default function SkyViewer({
                           refY="2"
                           orient="auto"
                         >
-                          <path d="M0,0 L4,2 L0,4" fill="#ffcb75" />
+                          <path d="M0,0 L4,2 L0,4" fill="var(--accent)" />
                         </marker>
                       </defs>
                       {candidates
@@ -204,7 +204,7 @@ export default function SkyViewer({
                             y1={c.previousYFraction! * 100}
                             x2={c.xFraction! * 100}
                             y2={c.yFraction! * 100}
-                            stroke="#ffcb75"
+                            stroke="var(--accent)"
                             strokeWidth=".45"
                             markerEnd="url(#motion-arrow)"
                           />
@@ -281,7 +281,7 @@ export default function SkyViewer({
                         .map((p) => `${p.xFraction * 100},${p.yFraction * 100}`)
                         .join(' ')}
                       fill="none"
-                      stroke="#99d5e3"
+                      stroke="var(--data)"
                       strokeWidth=".2"
                       strokeDasharray=".6 .45"
                     />
@@ -293,7 +293,7 @@ export default function SkyViewer({
                         cy={p.yFraction * 100}
                         r={frame?.id === p.observationId ? 0.9 : 0.45}
                         stroke={
-                          frame?.id === p.observationId ? '#f1ddac' : '#99d5e3'
+                          frame?.id === p.observationId ? 'var(--accent)' : 'var(--data)'
                         }
                         fill="none"
                         strokeWidth=".22"

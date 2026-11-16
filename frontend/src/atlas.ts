@@ -1,4 +1,5 @@
 import A from 'aladin-lite'
+import './palette.css'
 import type { AladinViewer, HiPSSurvey } from 'aladin-lite'
 
 let viewer: AladinViewer | null = null,

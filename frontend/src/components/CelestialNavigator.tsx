@@ -96,7 +96,7 @@ function buildProgram(gl: WebGLRenderingContext): ShaderHandles | null {
     void main() {
       if (uKind < 0.5) {
         float diff = max(0.0, dot(normalize(vNormal), normalize(vec3(-0.2, 0.45, 1.0))));
-        vec3 body = mix(vec3(0.025, 0.031, 0.035), vec3(0.091, 0.075, 0.051), diff * 0.86);
+        vec3 body = mix(vec3(0.043, 0.072, 0.13), vec3(0.102, 0.173, 0.29), diff * 0.86);
         gl_FragColor = vec4(body, 1.0);
       } else {
         if (uKind > 1.5 && distance(gl_PointCoord.xy, vec2(0.5)) > 0.49) discard;
@@ -144,11 +144,11 @@ export default function CelestialNavigator({ selectedRa, selectedDec, fovArcmin,
       parts.push({ buffer, count: points.length / 3, primitive, color, kind, size })
     }
     createPart(sphereMesh(), gl.TRIANGLES, [0.08, 0.07, 0.06, 1], 0)
-    for (let dec = -75; dec <= 75; dec += 15) createPart(makeGridLine('lat', dec), gl.LINE_STRIP, dec === 0 ? [.89, .58, .26, .66] : [.72, .48, .28, .42])
-    for (let ra = 0; ra < 360; ra += 15) createPart(makeGridLine('lon', ra), gl.LINE_STRIP, ra === 0 ? [.93, .68, .36, .72] : [.72, .48, .28, .39])
+    for (let dec = -75; dec <= 75; dec += 15) createPart(makeGridLine('lat', dec), gl.LINE_STRIP, dec === 0 ? [.43, .86, 1, .82] : [.36, .62, .84, .57])
+    for (let ra = 0; ra < 360; ra += 15) createPart(makeGridLine('lon', ra), gl.LINE_STRIP, ra === 0 ? [.43, .86, 1, .82] : [.36, .62, .84, .53])
     const nodes: number[] = []
     for (let dec = -60; dec <= 60; dec += 30) for (let ra = 0; ra < 360; ra += 30) nodes.push(...toPoint(ra, dec, radius + .014))
-    createPart(nodes, gl.POINTS, [1, .71, .36, .9], 2, 3)
+    createPart(nodes, gl.POINTS, [.43, .86, 1, .92], 2, 3)
     const marker = gl.createBuffer()
     if (!marker) { setError(true); return }
 
