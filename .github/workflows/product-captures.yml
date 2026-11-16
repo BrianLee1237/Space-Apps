@@ -1,0 +1,61 @@
+name: Capture Skyframe product flow
+on:
+  push:
+    branches: [codex/product-slide-captures]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - run: npm ci
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Capture the real comet workflow
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run dev -- --host 127.0.0.1 --port 5173 > /tmp/skyframe-vite.log 2>&1 &
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:5173/ > /dev/null; then break; fi
+            sleep 2
+          done
+          mkdir -p captures
+          node --input-type=module <<'JS'
+          import { chromium } from '@playwright/test';
+
+          const browser = await chromium.launch();
+          try {
+            const page = await browser.newPage({ viewport: { width: 1152, height: 760 }, deviceScaleFactor: 1.5 });
+            await page.goto('http://127.0.0.1:5173/', { waitUntil: 'domcontentloaded' });
+            await page.getByRole('button', { name: 'Shift & Stack', exact: true }).click();
+            const experiment = page.locator('.motion-experiment');
+            await experiment.waitFor();
+            const capture = name => experiment.screenshot({ path: 'captures/' + name + '.png', animations: 'disabled' });
+            const exposure = experiment.getByRole('button', { name: '06:05:29 UTC' });
+            await exposure.click();
+            await experiment.getByRole('img', { name: /Exposure 1/ }).waitFor();
+            await capture('01-select-exposure');
+            await experiment.getByRole('button', { name: 'Stack', exact: true }).click();
+            await experiment.getByRole('img', { name: /Stack with stars fixed/ }).waitFor();
+            await capture('02-align-predicted-path');
+            await experiment.getByRole('button', { name: 'Opposite path', exact: true }).click();
+            await experiment.getByRole('img', { name: /Stack along the opposite path/ }).waitFor();
+            await capture('03-reverse-path-control');
+          } finally {
+            await browser.close();
+          }
+          JS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: skyframe-product-captures
+          path: frontend/captures/*.png
+          if-no-files-found: error
+          retention-days: 3
