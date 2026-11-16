@@ -4,10 +4,33 @@ import type { AladinViewer, HiPSSurvey } from 'aladin-lite'
 let viewer: AladinViewer | null = null,
   survey: HiPSSurvey | null = null
 let configuration = { channel: 86, ra: 0, dec: 0, fov: 1 }
+let displayedChannel = 0
+function selectSurvey() {
+  if (!viewer || displayedChannel === configuration.channel) return
+  displayedChannel = configuration.channel
+  survey = A.imageHiPS(
+    `${location.origin}/api/science/atlas/${displayedChannel}`,
+    {
+      name: `SPHEREx DR1 channel ${displayedChannel}`,
+      imgFormat: 'png',
+      successCallback: () =>
+        parent.postMessage({ type: 'atlas-ready' }, location.origin),
+      errorCallback: () =>
+        parent.postMessage(
+          {
+            type: 'atlas-error',
+            message: 'The IRSA mosaic could not be retrieved.',
+          },
+          location.origin,
+        ),
+    },
+  )
+  viewer.setImageSurvey(survey)
+}
 function apply() {
   viewer?.gotoRaDec(configuration.ra, configuration.dec)
   viewer?.setFoV(configuration.fov)
-  survey?.setSliceNumber(configuration.channel - 1)
+  selectSurvey()
 }
 window.addEventListener('message', (event) => {
   if (
@@ -30,7 +53,7 @@ window.addEventListener('message', (event) => {
 void A.init
   .then(() => {
     survey = A.imageHiPS(
-      'https://irsa.ipac.caltech.edu/data/hips/SPHEREx/spherex_allsky_cube',
+      `${location.origin}/api/science/atlas/${configuration.channel}`,
       {
         name: 'SPHEREx DR1 wavelength mosaic',
         imgFormat: 'png',
@@ -49,6 +72,7 @@ void A.init
           ),
       },
     )
+    displayedChannel = configuration.channel
     viewer = A.aladin(document.getElementById('atlas')!, {
       survey: survey,
       target: `${configuration.ra} ${configuration.dec}`,

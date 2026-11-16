@@ -879,279 +879,289 @@ export default function Explorer() {
           } else setSettingsOpen((value) => !value)
         }}
       />
-      {view === 'shift-stack' ? <MotionStack /> : <>
-      <div className="epoch-toolbar">
-        <button
-          type="button"
-          className="search-open"
-          onClick={() => setSettingsOpen(true)}
-        >
-          Coordinates
-        </button>
-        <label>
-          Time spacing{' '}
-          <select
-            aria-label="Minimum epoch separation"
-            value={epochDays}
-            onChange={(e) => setEpochDays(Number(e.target.value))}
-          >
-            <option value={0}>All exposures</option>
-            <option value={1}>At least 1 day</option>
-            <option value={30}>At least 30 days</option>
-            <option value={180}>At least 180 days</option>
-          </select>
-        </label>
-        <button
-          disabled={frames.length < 2 || discoveryBusy}
-          onClick={() => {
-            setView('discover')
-            void scan()
-          }}
-        >
-          {discoveryBusy ? 'Checking…' : 'Find changes'}
-        </button>
-        <button
-          disabled={!target || status === 'loading'}
-          onClick={() => {
-            if (target) void loadObservations(target, band, true)
-          }}
-        >
-          Refresh archive
-        </button>
-        <span className="toolbar-status" role="status">
-          {status === 'loading'
-            ? 'Loading observations…'
-            : status === 'error'
-              ? 'Search failed'
-              : allFrames.length
-                ? `${playbackFrames.length} playback epochs / ${allFrames.length} exposures`
-                : 'No observations loaded'}
-        </span>
-      </div>
-      {mainJob && (
-        <div className="analysis-progress" role="status">
-          <span>
-            {mainJob.message} · {mainJob.completed}/{mainJob.total || '…'}
-          </span>
-          <button onClick={() => mainJobAbort.current?.abort()}>
-            Cancel analysis
-          </button>
-        </div>
-      )}
-      <div
-        className={`workspace ${settingsOpen ? 'workspace-with-settings' : 'workspace-no-settings'}`}
-      >
-        {settingsOpen && (
-          <Sidebar
-            ra={ra}
-            dec={dec}
-            onRa={setRa}
-            onDec={setDec}
-            fov={fov}
-            onFov={updateFov}
-            band={band}
-            onBand={updateBand}
-            gaia={gaiaEnabled}
-            onGaia={setGaiaEnabled}
-            hasFrames={!!frame}
-            gaiaWarnings={gaia?.warnings}
-            brightness={brightness}
-            onBrightness={setBrightness}
-            contrast={contrast}
-            onContrast={setContrast}
-            inverted={inverted}
-            onInvert={setInverted}
-            loading={status === 'loading'}
-            error={status === 'error' ? loadError : ''}
-            onSearch={(t) => {
-              setView('explorer')
-              if (window.innerWidth < 950) setSettingsOpen(false)
-              void loadObservations(t)
-            }}
-            onClose={() => setSettingsOpen(false)}
-          />
-        )}
-        <div className="viewer-workspace">
-          <div className="viewer-mode-header">
-            <div className="viewer-mode-title">
-              <strong>
-                {viewerMode === 'globe'
-                  ? 'Celestial navigator'
-                  : target?.name || 'SPHEREx observations'}
-              </strong>
-              <small>
-                {viewerMode === 'globe'
-                  ? 'Click the globe to select coordinates'
-                  : 'SPHEREx image viewer'}
-              </small>
-            </div>
-            <div
-              className="viewer-mode-buttons"
-              role="group"
-              aria-label="Viewer mode"
+      {view === 'shift-stack' ? (
+        <MotionStack />
+      ) : (
+        <>
+          <div className="epoch-toolbar">
+            <button
+              type="button"
+              className="search-open"
+              onClick={() => setSettingsOpen(true)}
             >
-              <button
-                aria-pressed={viewerMode === 'globe'}
-                className={viewerMode === 'globe' ? 'mode-active' : ''}
-                onClick={() => setViewerMode('globe')}
+              Coordinates
+            </button>
+            <label>
+              Time spacing{' '}
+              <select
+                aria-label="Minimum epoch separation"
+                value={epochDays}
+                onChange={(e) => setEpochDays(Number(e.target.value))}
               >
-                Navigator
-              </button>
-              <button
-                aria-pressed={viewerMode === 'observations'}
-                className={viewerMode === 'observations' ? 'mode-active' : ''}
-                onClick={() => setViewerMode('observations')}
-              >
-                Observations
+                <option value={0}>All exposures</option>
+                <option value={1}>At least 1 day</option>
+                <option value={30}>At least 30 days</option>
+                <option value={180}>At least 180 days</option>
+              </select>
+            </label>
+            <button
+              disabled={frames.length < 2 || discoveryBusy}
+              onClick={() => {
+                setView('discover')
+                void scan()
+              }}
+            >
+              {discoveryBusy ? 'Checking…' : 'Find changes'}
+            </button>
+            <button
+              disabled={!target || status === 'loading'}
+              onClick={() => {
+                if (target) void loadObservations(target, band, true)
+              }}
+            >
+              Refresh archive
+            </button>
+            <span className="toolbar-status" role="status">
+              {status === 'loading'
+                ? 'Loading observations…'
+                : status === 'error'
+                  ? 'Search failed'
+                  : allFrames.length
+                    ? `${playbackFrames.length} playback epochs / ${allFrames.length} exposures`
+                    : 'No observations loaded'}
+            </span>
+          </div>
+          {mainJob && (
+            <div className="analysis-progress" role="status">
+              <span>
+                {mainJob.message} · {mainJob.completed}/{mainJob.total || '…'}
+              </span>
+              <button onClick={() => mainJobAbort.current?.abort()}>
+                Cancel analysis
               </button>
             </div>
-          </div>
-          <div className="viewer-mode-content">
-            {view === 'science' ? (
-              <ScienceWorkspace
-                target={target}
-                frames={allFrames}
-                source={scienceSource}
-                onResult={setLatestAnalysis}
-                onSelectSource={() => {
-                  setView('explorer')
-                  setViewerMode('observations')
-                }}
-                onNavigate={(position) => {
-                  setView('explorer')
-                  void loadObservations(position)
-                }}
-              />
-            ) : viewerMode === 'globe' ? (
-              <CelestialNavigator
-                selectedRa={parseSkyCoordinates(ra, dec, fov)?.raDeg ?? null}
-                selectedDec={parseSkyCoordinates(ra, dec, fov)?.decDeg ?? null}
-                fovArcmin={fov}
-                loading={status === 'loading'}
-                onPick={(r, d) => {
-                  setRa(r.toFixed(6))
-                  setDec(d.toFixed(6))
-                }}
-                onSearch={() => {
-                  const picked = parseSkyCoordinates(ra, dec, fov)
-                  if (picked) void loadObservations(picked)
-                }}
-              />
-            ) : sliderActive &&
-              selectedMatchedPair &&
-              frames[from] &&
-              frames[to] ? (
-              <BeforeAfterSlider
-                key={frames[from].id + frames[to].id}
-                earlier={frames[from]}
-                later={frames[to]}
-                onClose={() => setSliderActive(false)}
-              />
-            ) : (
-              <SkyViewer
-                frame={frame}
-                track={track}
-                differenceUrl={diff?.imageUrl}
-                combineUrl={combine?.imageUrl}
-                status={status}
-                error={loadError}
-                candidates={visibleCandidates}
-                gaia={gaia}
+          )}
+          <div
+            className={`workspace ${settingsOpen ? 'workspace-with-settings' : 'workspace-no-settings'}`}
+          >
+            {settingsOpen && (
+              <Sidebar
+                ra={ra}
+                dec={dec}
+                onRa={setRa}
+                onDec={setDec}
+                fov={fov}
+                onFov={updateFov}
+                band={band}
+                onBand={updateBand}
+                gaia={gaiaEnabled}
+                onGaia={setGaiaEnabled}
+                hasFrames={!!frame}
+                gaiaWarnings={gaia?.warnings}
                 brightness={brightness}
+                onBrightness={setBrightness}
                 contrast={contrast}
+                onContrast={setContrast}
                 inverted={inverted}
-                onInspect={(p) => void inspect(p)}
-                onCandidate={(c) => void inspectCandidate(c)}
+                onInvert={setInverted}
+                loading={status === 'loading'}
+                error={status === 'error' ? loadError : ''}
+                onSearch={(t) => {
+                  setView('explorer')
+                  if (window.innerWidth < 950) setSettingsOpen(false)
+                  void loadObservations(t)
+                }}
+                onClose={() => setSettingsOpen(false)}
               />
             )}
-            {loadError && status === 'ready' && (
-              <div className="overlay-error" role="alert">
-                <AlertTriangle size={15} />
-                {loadError}
-                <button
-                  type="button"
-                  onClick={() => setLoadError('')}
-                  aria-label="Dismiss error"
+            <div className="viewer-workspace">
+              <div className="viewer-mode-header">
+                <div className="viewer-mode-title">
+                  <strong>
+                    {viewerMode === 'globe'
+                      ? 'Celestial navigator'
+                      : target?.name || 'SPHEREx observations'}
+                  </strong>
+                  <small>
+                    {viewerMode === 'globe'
+                      ? 'Click the globe to select coordinates'
+                      : 'SPHEREx image viewer'}
+                  </small>
+                </div>
+                <div
+                  className="viewer-mode-buttons"
+                  role="group"
+                  aria-label="Viewer mode"
                 >
-                  ×
-                </button>
+                  <button
+                    aria-pressed={viewerMode === 'globe'}
+                    className={viewerMode === 'globe' ? 'mode-active' : ''}
+                    onClick={() => setViewerMode('globe')}
+                  >
+                    Navigator
+                  </button>
+                  <button
+                    aria-pressed={viewerMode === 'observations'}
+                    className={
+                      viewerMode === 'observations' ? 'mode-active' : ''
+                    }
+                    onClick={() => setViewerMode('observations')}
+                  >
+                    Observations
+                  </button>
+                </div>
               </div>
-            )}
+              <div className="viewer-mode-content">
+                {view === 'science' ? (
+                  <ScienceWorkspace
+                    target={target}
+                    frames={allFrames}
+                    source={scienceSource}
+                    onResult={setLatestAnalysis}
+                    onSelectSource={() => {
+                      setView('explorer')
+                      setViewerMode('observations')
+                    }}
+                    onNavigate={(position) => {
+                      setView('explorer')
+                      void loadObservations(position)
+                    }}
+                  />
+                ) : viewerMode === 'globe' ? (
+                  <CelestialNavigator
+                    selectedRa={
+                      parseSkyCoordinates(ra, dec, fov)?.raDeg ?? null
+                    }
+                    selectedDec={
+                      parseSkyCoordinates(ra, dec, fov)?.decDeg ?? null
+                    }
+                    fovArcmin={fov}
+                    loading={status === 'loading'}
+                    onPick={(r, d) => {
+                      setRa(r.toFixed(6))
+                      setDec(d.toFixed(6))
+                    }}
+                    onSearch={() => {
+                      const picked = parseSkyCoordinates(ra, dec, fov)
+                      if (picked) void loadObservations(picked)
+                    }}
+                  />
+                ) : sliderActive &&
+                  selectedMatchedPair &&
+                  frames[from] &&
+                  frames[to] ? (
+                  <BeforeAfterSlider
+                    key={frames[from].id + frames[to].id}
+                    earlier={frames[from]}
+                    later={frames[to]}
+                    onClose={() => setSliderActive(false)}
+                  />
+                ) : (
+                  <SkyViewer
+                    frame={frame}
+                    track={track}
+                    differenceUrl={diff?.imageUrl}
+                    combineUrl={combine?.imageUrl}
+                    status={status}
+                    error={loadError}
+                    candidates={visibleCandidates}
+                    gaia={gaia}
+                    brightness={brightness}
+                    contrast={contrast}
+                    inverted={inverted}
+                    onInspect={(p) => void inspect(p)}
+                    onCandidate={(c) => void inspectCandidate(c)}
+                  />
+                )}
+                {loadError && status === 'ready' && (
+                  <div className="overlay-error" role="alert">
+                    <AlertTriangle size={15} />
+                    {loadError}
+                    <button
+                      type="button"
+                      onClick={() => setLoadError('')}
+                      aria-label="Dismiss error"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+            <Inspector
+              view={view}
+              frame={frame}
+              frames={frames}
+              selection={selection}
+              spectrum={spectrum}
+              spectrumBusy={spectrumBusy}
+              spectrumError={spectrumError}
+              discovery={discovery}
+              discoveryBusy={discoveryBusy}
+              discoveryError={discoveryError}
+              track={track}
+              trackBusy={trackBusy}
+              trackError={trackError}
+              onTrack={() => void runTracking()}
+              onScan={() => void scan()}
+              onCandidate={(c) => void inspectCandidate(c)}
+              diff={diff}
+              diffBusy={diffBusy}
+              diffError={diffError}
+              compareFrom={from}
+              compareTo={to}
+              onFrom={(value) => updateComparison(value, to)}
+              onTo={(value) => updateComparison(from, value)}
+              onGenerateDifference={() => void compare()}
+              onClearDifference={() => setDiff(null)}
+              matches={matches}
+              matchBusy={matchBusy}
+              matchError={matchError}
+              onFindMatches={() => void findMatches()}
+              matchedPair={selectedMatchedPair}
+              sliderActive={sliderActive}
+              onToggleSlider={toggleSlider}
+              combine={combine}
+              combineBusy={combineBusy}
+              combineError={combineError}
+              onGenerateCombine={() => void combineStack()}
+              onClearCombine={() => setCombine(null)}
+              target={target}
+              notes={notes}
+              onSaveNote={saveNote}
+              onDeleteNote={(id) =>
+                setNotes((v) => v.filter((item) => item.id !== id))
+              }
+              onGuideTarget={(name) => void guidedSearch(name)}
+              guideBusy={guideBusy}
+              activeGuide={activeGuide}
+              onGoCompare={() => {
+                setView('compare')
+                void findMatches()
+              }}
+              onGoDiscover={() => setView('discover')}
+              onGoMotion={() => setView('motion')}
+              onGoNotebook={() => setView('notebook')}
+              searchWarnings={searchWarnings}
+            />
+            <Timeline
+              frames={timelineFrames}
+              index={Math.max(0, timelineIndex)}
+              onIndex={(i) =>
+                changeIndex(
+                  frames.findIndex(
+                    (observation) => observation.id === timelineFrames[i].id,
+                  ),
+                )
+              }
+              playing={playing}
+              onPlaying={updatePlaying}
+              speed={speed}
+              onSpeed={setSpeed}
+            />
           </div>
-        </div>
-        <Inspector
-          view={view}
-          frame={frame}
-          frames={frames}
-          selection={selection}
-          spectrum={spectrum}
-          spectrumBusy={spectrumBusy}
-          spectrumError={spectrumError}
-          discovery={discovery}
-          discoveryBusy={discoveryBusy}
-          discoveryError={discoveryError}
-          track={track}
-          trackBusy={trackBusy}
-          trackError={trackError}
-          onTrack={() => void runTracking()}
-          onScan={() => void scan()}
-          onCandidate={(c) => void inspectCandidate(c)}
-          diff={diff}
-          diffBusy={diffBusy}
-          diffError={diffError}
-          compareFrom={from}
-          compareTo={to}
-          onFrom={(value) => updateComparison(value, to)}
-          onTo={(value) => updateComparison(from, value)}
-          onGenerateDifference={() => void compare()}
-          onClearDifference={() => setDiff(null)}
-          matches={matches}
-          matchBusy={matchBusy}
-          matchError={matchError}
-          onFindMatches={() => void findMatches()}
-          matchedPair={selectedMatchedPair}
-          sliderActive={sliderActive}
-          onToggleSlider={toggleSlider}
-          combine={combine}
-          combineBusy={combineBusy}
-          combineError={combineError}
-          onGenerateCombine={() => void combineStack()}
-          onClearCombine={() => setCombine(null)}
-          target={target}
-          notes={notes}
-          onSaveNote={saveNote}
-          onDeleteNote={(id) =>
-            setNotes((v) => v.filter((item) => item.id !== id))
-          }
-          onGuideTarget={(name) => void guidedSearch(name)}
-          guideBusy={guideBusy}
-          activeGuide={activeGuide}
-          onGoCompare={() => {
-            setView('compare')
-            void findMatches()
-          }}
-          onGoDiscover={() => setView('discover')}
-          onGoMotion={() => setView('motion')}
-          onGoNotebook={() => setView('notebook')}
-          searchWarnings={searchWarnings}
-        />
-        <Timeline
-          frames={timelineFrames}
-          index={Math.max(0, timelineIndex)}
-          onIndex={(i) =>
-            changeIndex(
-              frames.findIndex(
-                (observation) => observation.id === timelineFrames[i].id,
-              ),
-            )
-          }
-          playing={playing}
-          onPlaying={updatePlaying}
-          speed={speed}
-          onSpeed={setSpeed}
-        />
-      </div>
-      </>}
+        </>
+      )}
     </div>
   )
 }

@@ -286,6 +286,7 @@ export type ScienceResult = {
   staticImageUrl?: string
   channel?: number
   inputCount?: number
+  inputObservationIds?: string[]
   rejectedPixels?: number
   empiricalPsfMatched?: boolean
   fluxUnit?: string

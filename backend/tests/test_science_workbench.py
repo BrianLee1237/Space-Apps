@@ -70,6 +70,32 @@ def test_bilinear_variance_uses_squared_weights():
     ).all()
 
 
+def test_atlas_maps_nonuniform_cube_layers_to_exact_tiles():
+    from fastapi import FastAPI
+
+    from spherex_api.atlas import atlas_router
+
+    class Archive:
+        def fetch(self, url):
+            return b"hips_order = 5\nhips_cube_depth = 102\nhips_pixel_cut = 0 40\n"
+
+    app = FastAPI()
+    app.include_router(atlas_router(Archive()), prefix="/atlas")
+    with TestClient(app) as client:
+        response = client.get("/atlas/100/properties")
+        assert "dataproduct_type = image" in response.text
+        assert "hips_cube_depth" not in response.text
+        assert "hips_pixel_cut" not in response.text
+        for channel, filename in ((1, "Npix0.png"), (100, "Npix0_99.png")):
+            response = client.get(
+                f"/atlas/{channel}/Norder0/Dir0/Npix0.png", follow_redirects=False
+            )
+            assert response.status_code == 307
+            assert response.headers["location"].endswith(filename)
+        assert client.get("/atlas/103/properties").status_code == 422
+        assert client.get("/atlas/1/Norder0/Dir0/Npix12.png").status_code == 404
+
+
 def test_aperture_sky_reaches_beyond_known_source_mask(tmp_path):
     from spherex_api.imaging import output_wcs
 
@@ -283,3 +309,46 @@ def test_science_jobs_inspect_all_epochs_and_return_provenance(tmp_path):
             ).status_code
             == 422
         )
+
+
+def test_bounded_job_keeps_the_selected_reference(tmp_path, monkeypatch):
+    from spherex_api import science
+
+    query = SearchRequest(ra=133.7, dec=-7.2, fov_arcmin=10)
+    rows = [
+        (
+            DATA_URL.replace("example", f"example-{i}"),
+            str(i),
+            "SPHEREx-D6",
+            "spherex_dr1",
+            60900 + i,
+        )
+        for i in range(300)
+    ]
+
+    def upstream(request):
+        content = sia_bytes(rows=rows) if request.url.path == "/SIA" else mef_bytes(query)
+        return httpx.Response(200, content=content)
+
+    settings = Settings(data_dir=tmp_path)
+    service = SkyService(settings, ArchiveClient(settings, httpx.MockTransport(upstream)))
+    with TestClient(create_app(settings, service=service)) as client:
+        frames = client.get("/api/observations", params={"ra": query.ra, "dec": query.dec}).json()[
+            "observations"
+        ]
+        ids = [row["id"] for row in frames]
+        selected = {round(i * 299 / 255) for i in range(256)}
+        reference = ids[next(i for i in range(300) if i not in selected)]
+        monkeypatch.setattr(
+            service, "frame", lambda *args: (tmp_path / "unused.fits", {"detector": 6})
+        )
+        monkeypatch.setattr(science, "matched_pairs", lambda *args, **kwargs: [])
+        monkeypatch.setattr(science, "point_sample", lambda *args: {"wavelengthMicron": 4.5})
+        response = client.post(
+            "/api/science/jobs", json={"kind": "matches", "ids": ids, "referenceId": reference}
+        )
+        job = wait_for_job(client, response)
+        assert job["state"] == "complete", job
+        observations = job["result"]["provenance"]["observations"]
+        assert len(observations) == 256
+        assert reference in {row["id"] for row in observations}

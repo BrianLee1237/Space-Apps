@@ -1,124 +1,123 @@
 # Challenge requirements and current behavior
 
-Reviewed against the challenge text supplied in this project conversation on November 15, 2026.
+Reviewed against the supplied challenge on November 15, 2026. Public hosting is
+excluded from the current implementation request.
 
 ## Required experience
 
-| Requirement | Implemented behavior | Verification limit |
+| Requirement | Current implementation | Verification and limits |
 | --- | --- | --- |
-| Enter RA and declination | Coordinates button and coordinate controls open by default. Decimal and sexagesimal input. | Coordinate entry, URL loading, and production browser flow checked. |
-| Retrieve real SPHEREx images | Anonymous IRSA DR1/QR3 search, FITS cutouts, WCS-aligned previews. | Coverage and quality depend on archive observations. |
-| See change over time | Playback with all exposures or minimum epoch separations of 1, 30, or 180 days. Real elapsed days appear on the timeline. | Epoch mode chooses individual exposures. |
-| Test the five named targets | Guided targets resolve to documented fields. All five returned real images in the November 15 live checks. | Retrieval does not establish that all five show detectable motion or variability. |
-| Public-facing web tool | Frontend and API run together locally. Docker packaging and deployment instructions are present. | Public HTTPS hosting and external-device verification remain pending. |
+| Enter RA and declination | Visible Coordinates control, decimal/sexagesimal parser, coordinate URLs | Browser and API checks pass |
+| Real SPHEREx images | Anonymous IRSA DR1/QR3 search, FITS cutouts, WCS-aligned previews | Live images retrieved for all five named fields |
+| Video-like change viewing | Dated timeline, playback, adjustable spacing, shared display limits | Full-search analysis remains independent of temporal playback thinning |
+| Test five targets | Guide includes Barnard’s Star, Epsilon Indi B, WISE 0855, RW Aurigae, R Draconis | Retrieval and fixed-position measurements are tested. Astrophysical identities and expected changes require independent confirmation |
+| Public-facing tool | Browser frontend and API run together locally | Public hosting deferred by user |
 
 ## Cadence
 
-The supplied challenge describes mapping the sky every six months. It requests a
-series of images displayed like a video and specifies no mandatory frame duration
-or fixed separation between images. Actual exposures have irregular spacing.
+The challenge describes a whole-sky survey every six months and requests images
+played like a video. It gives no required frame duration or fixed epoch interval.
+Exposures have irregular observation times. Playback offers all exposures or a
+minimum gap of 1, 30, or 180 days, defaulting to 30. Speed sets screen time.
+Analysis inspects the full search, with explicit workload limits, before selecting
+same-detector, same-channel comparison data.
 
-The default minimum separation is now 30 days. Users can choose every exposure,
-at least one day, at least 30 days, or at least 180 days. The first available
-exposure starts each sequence and subsequent exposures are selected only when
-the chosen minimum interval has elapsed. Missing epochs are omitted. Playback
-speed controls screen time independently from observation time.
+## Implemented improvements
 
-## Visible change analysis
-
-Use **Find changes** after loading at least two epochs. The current API analyzes
-up to three disjoint, wavelength-compatible epoch pairs. Captions include the
-number of supporting pairs. Numbered rings identify residuals and paired positive
-and negative residuals can have directional arrows.
-
-The November 15 fix makes a successful scan advance playback to the first
-candidate's later observation. Each candidate is displayed on its own later epoch.
-Difference overlays require the candidate's actual comparison dates to match the
-selected difference pair. Selecting a candidate opens its evidence epoch and
-explanation. Playback and manual stepping exit the before/after view, and a new
-source selection invalidates pending motion results.
-
-Candidate captions describe image evidence and retain an unverified label. A
-two-image residual can arise from motion, variability, spectral sampling, the
-PSF, or detector artifacts. A zero-result scan displays zero candidates and its
-warnings. The software does not create example detections when none pass its
-thresholds.
-
-## Optional considerations in the challenge
-
-| Feature | Current behavior / remaining work |
+| Feature | Behavior and limits |
 | --- | --- |
-| Latest releases | Configurable DR1/QR3 collections, cached search snapshots and refresh through the API. |
-| 102 channels | All 102 calibrated wavelength windows are selectable. Frames are filtered by center wavelength and pixels outside the chosen window are masked. These quick-look windows differ from geometric channel-map assignments and full mosaics. |
-| Six-detector coadds | Aligned unweighted mean coadds work for distinct observations. Streaming accumulation and half-coverage masking are implemented. PSF matching, outlier rejection, and inverse-variance weighting remain pending. |
-| Spectral fingerprint | Image clicks reuse up to 24 cached native FITS exposures from the current search. This fast preview can cover one detector. The broader API path supports six-detector sampling. Samples include wavelength, uncertainty, flags, and date. Complete channel coverage and PSF-corrected source spectra remain pending. |
-| Subtraction | Common-grid subtraction includes a robust constant background correction and Gaussian PSF homogenization when both input headers provide PSF_FWHM. Empirical PSF kernels, photometric scaling, spatial background models, and propagated difference uncertainty remain pending. |
-| Field of view | Continuous 0.5–60 arcmin backend coverage and frontend selection. |
-| Gaia DR3 | Brightness-limited catalog overlays use ESA with an ARI mirror fallback and cached cone searches. Linear proper-motion propagation works. Parallax and radial-velocity propagation remain pending. |
-| Contamination flags | Selected-frame metadata is retrieved on demand with decoded flags, wavelength, and PSF width. |
-| Shareable coordinates | RA, declination, field size, detector/channel selection are stored in the URL. Epoch spacing currently uses local UI state. |
+| Change highlighting | Strong provisional residuals have rings, directional arrows where supported, and captions attached to supporting observation dates. Up to three disjoint compatible pairs support candidate association using sky positions and PSF scales |
+| Light curves | Native fractional-aperture mJy flux, native variance and annular-background errors, per-channel scatter statistics, and CSV export |
+| Wavelength-time coverage | Inverse-variance cells with scatter-inflated uncertainty, interactive channel selection, and blank missing coverage |
+| Six-detector aperture spectra | Explicit deeper archive request across all six detectors, detector/time-balanced inspection of up to 256 exposures, flagged/invalid measurements omitted with warnings |
+| Weighted stacks | Same-channel inverse-variance stacks, robust background correction, 5-sigma pixel rejection with at least three inputs, and half-input coverage threshold |
+| Advanced subtraction | Reference-star offsets, empirical PSF cross-convolution when at least three usable stars exist per epoch, robust scaling, constant/planar background, variance propagation, and significance preview |
+| Motion analysis | Weighted tangent-plane fit, centroid errors and assumed 0.5-arcsec floor, reference-star correction where supported, selectable east/north motion-compensated stacking |
+| 102-channel atlas | On-demand Aladin Lite view of the real IRSA DR1 all-sky HiPS cube. Channels 51/52 are labeled blank dichroic layers. Click a sky position to load dated observations |
+| Gaia DR3 | Brightness-limited overlay and nearby counterpart query, ESA/ARI failover and 15-minute cache. Linear proper motion excludes parallax and radial velocity |
+| Updated data | Configurable collections and Refresh archive control create new search snapshots |
+| Work management | Two-worker analysis queue, bounded admission, progress, subscriber-aware cancellation and deduplication |
+| Cache management | Idle FITS/preview eviction under the cache budget, active analysis pinning, preserved manifests/reports/evidence |
+| Evidence | SQLite persistence, coordinate/source/epoch/observation URLs, JSON and CSV export, PDF with embedded JSON, processing parameters and calibration/software/FITS hashes |
+| Local review | Saved evidence queue and replaceable per-browser assessments with explicit provisional classifications |
+| Comet demonstration | Integrated branch provides real 3I/ATLAS exposures and predicted-path stacking. Practice mode explicitly labels its injected source |
+| Regression checks | Backend tests/lint, frontend lint/build, scientific motion-stack checks, desktop/mobile browser tests, and GitHub Actions |
 
-The official spectral calibration table bundled as `channels.json` was extracted
-from `SPECTRAL_CHANNELS` in the following public calibration product. Its wavelength
-windows are used with each cutout's approximate spectral WCS for display filtering.
-[Calibration FITS](https://irsa.ipac.caltech.edu/ibe/data/spherex/qr3/spectral_channels/cal-sch-v2-2026-229/spectral_channels_spx_cal-sch-v2-2026-229.fits)
+## Scientific interpretation
 
-IRSA documents the spectral WCS lookup as suitable for visualization. Quantitative
-analysis should use the high-fidelity wavelength calibration and appropriate
-spectral-response and PSF treatment. [SPHEREx data products](https://caltech-ipac.github.io/spherex-archive-documentation/spherex-data-products/)
+An image residual can arise from motion, variability, spectral response, PSF,
+calibration, or detector artifacts. Candidate captions preserve provisional status.
+No-data and zero-detection outcomes remain visible.
 
-## November 15 verification
+The approximate FITS spectral WCS and bundled channel windows support quick-look
+comparison. Quantitative spectroscopy needs high-fidelity wavelength calibration,
+spectral-response treatment, and PSF/aperture corrections. Spectral samples can
+come from different dates. [IRSA data products](https://caltech-ipac.github.io/spherex-archive-documentation/spherex-data-products/)
 
-Pulled main at `63941da`, including Rafael's `19907b4` science upgrade. All five
-guided targets returned real detector-6 observations and valid PNGs from both
-endpoints of their available time range. Counts were 59 for Barnard’s Star,
-96 for Epsilon Indi B, 45 for WISE 0855, 56 for RW Aurigae, and 91 for R Draconis.
-These counts describe archive searches at the test time and can change.
+Aperture fluxes have statistical errors but require aperture-loss and absolute
+calibration treatment. Differences propagate independent-pixel variances through
+resampling and convolution. Correlations/systematics remain additional. Motion
+fits omit parallax/acceleration and use an assumed astrometric floor. Source
+associations require validation against catalog positions and neighboring sources.
 
-For WISE 0855, the default 30-day playback filter selects four epochs. Matching
-those four returned one compatible pair. Matching a time-distributed sample of
-24 underlying exposures returned the API's maximum 12 ranked pairs. Matching and
-discovery currently inspect the playback-filtered sequence. This loses useful
-comparison opportunities and should be improved by selecting scientifically
-compatible observations before thinning for playback.
+The atlas is a combined-time visualization product. Its layers cannot supply
+dated motion measurements. IRSA documents blank dichroic layers and visualization
+artifacts. [IRSA mosaic tutorial](https://caltech-ipac.github.io/irsa-tutorials/spherex-hipscube/)
 
-The matched-pair discovery request returned six unverified residuals. A browser
-regression check reproduced zero visible markers on the initial frame. The fix
-advances to the evidence epoch, where all six markers are visible. Stepping to an
-unrelated epoch hides them. This establishes annotation behavior, with target
-identification and validated motion/variability demonstrations still pending.
+## Live checks on November 15
 
-Validation passed 32 backend tests and the frontend production build. Browser
-checks passed coordinate URL loading, playback, wavelength matching, before/after
-interaction, automatic annotation epoch selection, annotation hiding, switching
-from before/after to playback, PDF download, and mobile overflow checks. The PDF
-export produced a 70,976-byte file with a PDF header. No browser runtime errors
-were recorded during these checks.
+All five detector-6 searches returned real frames and valid earliest/latest PNGs.
+Archive counts were 59 for Barnard’s Star, 96 for Epsilon Indi B, 45 for WISE 0855,
+56 for RW Aurigae, and 91 for R Draconis. Counts depend on query and archive updates.
+The field centers are fixed documented coordinates. They do not provide moving
+source ephemerides.
 
-Python lint currently reports 24 style findings, comprising 21 long lines and
-three import-order issues. Frontend lint reports seven advisory warnings about
-Fast Refresh exports and state updates in effects. The unit tests emit one
-Starlette/httpx deprecation warning. Container execution and public deployment
-have not been verified during this review.
+The new aperture API was also exercised on the two archived test exposures per
+field. It returned two usable fixed-center apertures in the WISE field and zero
+in each of the other four fields. The RW Aurigae samples carried OVERFLOW flags,
+and R Draconis carried OVERFLOW, SUR_ERROR, and BLOOM. Other omissions failed
+aperture/background quality coverage. These outcomes are recorded locally in
+`data/reports/science-validation.json` and require source identification and
+epoch-aware positions before interpreting target brightness.
 
-## Highest-priority remaining work
+The WISE 0855 field’s full-search matching returned 39 compatible pairs, improving
+coverage over its four time-thinned playback epochs. A selected real field source
+produced native aperture measurements, a six-detector spectrum, weighted stacks,
+and propagated-variance differences. This selected source is a field source and
+has no established identification as WISE 0855.
 
-- Complete public HTTPS hosting, persistent cache configuration, request limits,
-  and an external-device test.
-- Select wavelength-compatible observations from the full search before temporal
-  thinning. Build comparable per-epoch coadds and propagate variance.
-- Validate source identity and expected behavior on the five targets. Include
-  observed non-detections and uncertainty when the data cannot establish a change.
-- Add light curves with source/background photometry and uncertainty. The current
-  motion tracker associates image peaks and lacks validated astrometric errors.
-- Improve quality ranking to distinguish informational flags from artifact flags.
-  Associate repeated residuals using astrometry and PSF scales instead of only a
-  fixed 40-arcsec positional box.
-- Add background jobs, shared-request deduplication, progress, and managed temporary
-  caching for expensive queries. The current cache raises a capacity error when full.
-- Expose a clearly labeled cached spectral preview and an explicit deeper
-  extraction request. Integrate official spectrophotometry where appropriate.
-- Include time spacing, selected observations, processing parameters, and software/
-  calibration versions in shareable evidence records.
-- Add continuous integration for unit tests, production builds, lint, and critical
-  browser paths. Resolve the remaining lint findings.
+A too-small sky annulus initially rejected detectors 2 and 4 because their known
+source masks extended into it. Expanding the outer annulus from 2.5 to 4 aperture
+radii recovered valid measurements across all six detectors. Invalid exposures
+continue to be rejected. Gaia GET retrieval succeeded on a Barnard field query,
+while other live requests timed out at the external services. Catalog failures
+are reported in the interface.
+
+Scientific confirmation of expected motion/variability on the five named objects
+remains pending. Coverage, fixed-coordinate aperture measurements, and residual
+markers alone cannot establish those claims.
+
+The test suite includes native-aperture scaling, source-mask background coverage,
+squared interpolation weights, outlier rejection, injected motion recovery,
+reference-star offsets, empirical PSFs, job cancellation/deduplication, evidence
+persistence, cache protection, and API validation. Browser checks exercise full
+search selection independently of playback, source selection, mobile layout,
+live charts/exports, saved evidence reload, and atlas navigation.
+The final local checks passed 46 backend tests, three scientific motion-stack
+tests, and two browser regression tests, with clean backend/frontend lint and a
+successful production build. A PDF parser verified its embedded evidence JSON.
+The live atlas check confirmed exact channel-100 tiles and no browser runtime
+errors after explicit channel-to-tile mapping replaced frequency interpolation.
+
+## Remaining validation
+
+- Identify and epoch-propagate each named moving target, quantify completeness and
+  false positives, and compare recovered motion/variability against independent data.
+- Validate the astrometric floor and correlated-noise/significance calibration.
+- Add high-fidelity wavelength response, aperture corrections, and PSF-fit source
+  photometry for quantitative spectra and crowded fields.
+- Run a real external multi-user review study before interpreting assessment counts.
+
+One Starlette/httpx test-client deprecation warning remains. The on-demand Aladin
+bundle exceeds Vite’s size advisory. Public hosting and container execution have
+been deferred and unverified in this task.

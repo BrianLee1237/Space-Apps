@@ -49,7 +49,8 @@ def main():
             if row["obs_creator_did"] in OBSERVATIONS
         }
         script = (
-            (inputs / "comet-urls.txt").read_text() if inputs
+            (inputs / "comet-urls.txt").read_text()
+            if inputs
             else archive.fetch(IRSA + "3IATLASImages-curl.sh").decode()
         )
         urls = re.findall(r"download_file '(https:[^']+\.fits)'", script)
@@ -76,13 +77,15 @@ def main():
             metadata = inspect_fits(path, target)
             sky = SkyCoord(row["comet_ra"] * u.deg, row["comet_dec"] * u.deg)
             x, y = wcs.world_to_pixel(sky)
-            frames.append({
-                "id": id_,
-                "time": Time(row["t_min"], format="mjd", scale="utc").isot + "Z",
-                "wavelength": metadata["central_wavelength_um"],
-                "sourceUrl": url,
-                "position": [float(x), float(PIXELS - 1 - y)],
-            })
+            frames.append(
+                {
+                    "id": id_,
+                    "time": Time(row["t_min"], format="mjd", scale="utc").isot + "Z",
+                    "wavelength": metadata["central_wavelength_um"],
+                    "sourceUrl": url,
+                    "position": [float(x), float(PIXELS - 1 - y)],
+                }
+            )
             for request, planes in ((center, images), (practice, backgrounds)):
                 plane = registered_image(path, request, PIXELS, DEFAULT_CANDIDATE_REJECT_BITS)
                 if np.isfinite(plane).mean() < 0.8:
@@ -91,13 +94,19 @@ def main():
 
         output = Path(__file__).resolve().parents[2] / "frontend" / "public" / "motion-stack"
         output.mkdir(parents=True, exist_ok=True)
-        (output / "comet.json").write_text(json.dumps({
-            "size": PIXELS,
-            "pixelUnit": PIXEL_UNIT,
-            "arcsecPerPixel": FOV * 60 / PIXELS,
-            "practiceArcsecPerPixel": practice.fov_arcmin * 60 / PIXELS,
-            "frames": frames,
-        }, indent=2) + "\n")
+        (output / "comet.json").write_text(
+            json.dumps(
+                {
+                    "size": PIXELS,
+                    "pixelUnit": PIXEL_UNIT,
+                    "arcsecPerPixel": FOV * 60 / PIXELS,
+                    "practiceArcsecPerPixel": practice.fov_arcmin * 60 / PIXELS,
+                    "frames": frames,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
         pixels = np.stack(images + backgrounds)
         finite = np.isfinite(pixels)
         scaled = np.rint(pixels[finite] / PIXEL_UNIT)

@@ -29,97 +29,107 @@ FastAPI. For separate frontend hosting, set `VITE_API_BASE_URL` to the backend's
 absolute `/api` URL when building and set `SPHEREX_CORS_ORIGINS` on the backend to
 the frontend's origin.
 
-## Connected behavior
+## Explore and measure
 
-- Coordinate search, all five guided targets, and detector selection retrieve DR1
-  and QR3 observations.
-- Auto selects detector 6. Detector selection supports 1 through 6. The existing
-  field-of-view options through 60 arcminutes are supported.
-- The timeline uses actual observation times and loads real FITS-derived PNGs on
-  demand. Frames use a common celestial grid and the first frame's brightness limits.
-- Release, detector, exposure, and inspected quality metadata populate the existing
-  components. Flags are included when the actual FITS metadata are cached.
-- The local discovery notebook retains the frontend's existing browser storage.
+- Enter decimal or sexagesimal RA/declination in Coordinates, or load a named
+  target from Guide. Adjust the field size and select a detector or one of the
+  102 calibrated channel windows.
+- Play dated exposures, choose minimum epoch spacing, and find wavelength-matched
+  comparisons. Analysis uses the full search independently of playback thinning.
+- Use Find changes for provisional residual rings, arrows, and explanatory
+  captions tied to the actual supporting epochs.
+- Click a visible source, then open Science. Measure native-pixel aperture light
+  curves with statistical errors, inspect wavelength-by-time coverage, or request
+  a deeper six-detector aperture spectrum. Blank coverage and rejected exposures
+  are reported explicitly.
+- Under Image processing, generate inverse-variance channel stacks with outlier
+  rejection, PSF-aware differences, reference-star-corrected motion fits, and
+  motion-compensated stacks. Significance images accompany processed results.
+- Use Sky atlas to navigate IRSA's real 102-layer SPHEREx DR1 HiPS mosaic, then
+  select a field for dated-exposure analysis. The mosaic combines observation times.
+- Save completed analyses to Evidence & review. Reopen recorded settings through
+  the page URL, rerun them, export CSV/JSON, and record local browser assessments.
+  Notebook PDF reports embed the complete evidence JSON.
 
-Difference imaging is implemented: `/api/difference` and `/v1`-backed
-`/api/difference.png` resample two observations onto one shared ICRS grid and
-render a zero-centered, red/blue diverging quick-look PNG (to minus from). It is
-a quick-look subtraction that retains calibrated surface-brightness input units,
-with robust constant-background correction and Gaussian PSF homogenization when
-both headers provide usable PSF widths. Photometric scaling, spatial background
-models, and propagated difference uncertainties remain pending. The response
-describes these limits in its `warnings`. The two frames are reordered into true
-chronological order by their own observation time regardless of which one the
-caller labeled `fromId`/`toId`, with a warning if that required a swap or if
-the two frames came from searches with a different field center or FOV.
+The default playback spacing is 30 days. Available choices are all exposures,
+1, 30, and 180 days. The challenge's six-month survey description specifies no
+mandatory animation interval. Playback speed controls time on screen separately.
 
-The Gaia DR3 catalog overlay is implemented: `/api/overlays?observationId=...`
-queries ESA's public Gaia Archive TAP+ service with an ARI mirror fallback
-and cached cone searches for sources within the frame's field, applies a linear proper-motion approximation from each source's own
-Gaia DR3 reference epoch to the observation's own epoch, and projects them
-onto the same output grid the preview PNG uses. No parallax or radial-velocity
-correction is applied; the response's `warnings` say so, including when a
-source had no proper-motion solution at all.
+## Processing and data access
 
-Candidate detection is implemented through `/api/candidates?ra=&dec=&fov=&ids=...`.
-It selects up to three disjoint same-detector, wavelength-compatible epoch pairs
-from the requested observations, subtracts local median backgrounds, and detects
-strong residual blobs. Positive/negative residual pairs can be marked as possible
-motion. Repeated residual locations are grouped provisionally, with up to twelve
-candidates returned. The supporting-pair count describes image evidence and
-requires further object association and false-positive validation.
+Public SPHEREx DR1/QR3 SIA searches and FITS cutouts use anonymous IRSA access.
+Gaia DR3 overlays and counterpart checks use ESA TAP with an ARI mirror and a
+15-minute cone-search cache. Positions use linear proper-motion propagation from
+the catalog epoch. External services can time out and their errors remain visible.
+No API key is required for these services.
 
-The **Find changes** action advances to an evidence epoch. Captions appear on
-their corresponding observations. Source tracking, the before/after slider, and
-PDF evidence exports are available in the latest frontend. Scientific limits
-and remaining work are recorded in [the requirements review](REQUIREMENTS_REVIEW.md).
+The new `/api/science/jobs` endpoint accepts analysis requests, returns progress,
+and supports subscriber-aware cancellation and duplicate-request sharing. Jobs
+inspect up to 256 detector/time-balanced exposures. Image stacks use at most 64
+compatible inputs. Limits and omitted inputs are included in result warnings.
+Existing `/api` and `/v1` endpoints remain available for existing callers. Legacy
+quick-look subtraction, coadds, and surface-brightness spectra retain their own
+processing methods. The Science workspace uses the new processing pipeline.
 
-Channel selection uses the bundled official 102-channel calibration windows.
-`mode=channel&index=1-102` chooses the associated detector, inspects the actual
-FITS spectral WCS at the requested position, and includes exposures whose center
-wavelength falls within that window. Preview pixels outside the window are masked.
-This quick-look selection uses approximate spectral WCS. Empty coverage is shown
-explicitly. [IRSA spectral calibrations](https://irsa.ipac.caltech.edu/Missions/spherex.html)
+Aperture photometry measures calibrated MJy/sr pixels on their native grid and
+converts the flux to mJy using the local WCS pixel area. It propagates native
+variance and sigma-clipped local-sky uncertainty. Source-mask pixels are retained
+inside the aperture and excluded from the 1.5–4 aperture-radius sky annulus.
+Measurements require at least 90% valid aperture coverage and 12 usable sky pixels.
+PSF aperture losses and calibration systematics remain additional uncertainties.
 
-Exposure combination is implemented through `/api/combine?ids=...`. It averages
-aligned real exposures using streaming sums and valid-pixel counts, keeping pixels
-covered by at least half the distinct inputs. This is an unweighted mean with
-quality-bit masking available through the API. Warnings describe mixed detector
-bands, variable wavelength, and blurring of moving sources. The UI combines the
-currently displayed epochs.
+New differences use shared-grid registration, isolated-reference-star offsets,
+empirical PSF cross-convolution when enough stars exist, robust photometric scaling,
+and constant or planar background correction. Variances propagate through squared
+interpolation/convolution weights. Interpolation correlations and calibration
+systematics remain additional. Motion fits use PSF/SNR errors with an assumed
+0.5-arcsec astrometric floor and require independent validation.
 
-Clicking an image or candidate requests `/api/spectrum` with its observation
-context. This fast path reuses up to 24 locally cached native FITS exposures and
-can cover only one detector. A direct RA/Dec request without observation context
-uses the broader six-detector extraction path, with up to six temporal samples
-per detector. Each point includes its native-pixel wavelength, surface brightness,
-variance-derived uncertainty, quality flags, and observation date. Invalid and
-artifact-flagged pixels are skipped. The plot shows samples with error bars and
-hover details. PSF-fit photometry and complete 102-channel spectra remain pending.
+Source wavelengths use the FITS approximate spectral WCS and official bundled
+channel windows. Sparse samples can combine different dates. Complete channel
+coverage, PSF-corrected spectra, and independently confirmed target detections
+require further scientific validation. The requirements review records the actual
+checks and remaining limits. [Requirements review](REQUIREMENTS_REVIEW.md)
 
-Wavelength can vary between exposures within one detector. Use the
-wavelength metadata from the `/v1` API when assessing motion or variability.
+## Local storage
 
-Search snapshots and FITS files are stored under `backend/data` and are ignored by
-Git. The Python environment and generated frontend build are also ignored. The
-frontend retains the team’s navigation and components with an integrated charcoal-and-gold visual system.
+Set `SPHEREX_DATA_DIR` to keep an existing cache. The default is `backend/data`.
+Search snapshots, FITS cutouts, previews, and `evidence.sqlite3` live there and are
+ignored by Git. Idle downloaded FITS and generated previews can be evicted within
+the configured budget. Active analysis frames are pinned. Search manifests,
+reports, and saved evidence are preserved. Run one backend process per cache.
+
+Jobs and their short-lived results live in memory. Saved evidence and assessments
+persist in SQLite. Review counts represent browser-local assessments. Saved
+measurements retain FITS checksums, observation/release IDs, processing parameters,
+library versions, software SHA256, and the calibration SHA256. Regenerating an
+image after cache eviction can require archive access.
 
 ## Validation
 
 ```powershell
+uv run --project backend pytest backend/tests -q
+uv run --project backend ruff check backend/src backend/scripts backend/tests
 cd frontend
+npm ci
+npm run lint
 npm run build
-cd ../backend
-uv run pytest -q
-uv run python scripts/validate_live.py --frames-per-target 2
+npm run test:science
+npx playwright install chromium
+npm run test:e2e
 ```
 
-The backend tests include the frontend request/response contract, image URLs,
-guided targets, shared display limits, and scientific image-processing regressions.
-The opt-in live check writes results under `backend/data/reports`.
+GitHub Actions runs backend tests/lint, frontend lint/build, motion-stack tests,
+and critical browser regressions. Browser fixtures are separate from opt-in live
+archive checks. Run `uv run python scripts/validate_live.py --frames-per-target 2`
+from `backend` for all five challenge fields. Live reports are saved in the data
+folder. The browser tests use a separate temporary cache.
 
-Detailed archive access and processing information is available in
-[the backend README](backend/README.md) and [the build plan](backend/BUILD_PLAN.md).
+Public-domain deployment is outside the current task. The app runs locally from
+one FastAPI URL. The team’s charcoal-and-gold interface is retained.
+
+Detailed archive information is available in the backend README and build plan.
+[Backend README](backend/README.md) · [Build plan](backend/BUILD_PLAN.md)
 
 ## Integrated branch review
 

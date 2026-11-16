@@ -121,6 +121,7 @@ function LightCurve({
         <text x="680" y="248" textAnchor="end">
           {new Date(last).toLocaleDateString(undefined, { timeZone: 'UTC' })}
         </text>
+        <text x="365" y="265" textAnchor="middle">Observation date (UTC)</text>
       </svg>
     </div>
   )
@@ -274,9 +275,16 @@ export default function ScienceWorkspace({
           if (result.samples) {
             setPhotometry(result)
             setTab('photometry')
-          } else if(result.counterparts){setCatalog(result);setTab('photometry')}
-          else if(result.measurements){setTrack(result);setTab('images')}
-          else {setImage(result);setTab('images')}
+          } else if (result.counterparts) {
+            setCatalog(result)
+            setTab('photometry')
+          } else if (result.measurements) {
+            setTrack(result)
+            setTab('images')
+          } else {
+            setImage(result)
+            setTab('images')
+          }
           setMessage('Reopened recorded evidence ' + evidence)
         }
       })
@@ -375,9 +383,16 @@ export default function ScienceWorkspace({
     if (result.samples) {
       setPhotometry(result)
       setTab('photometry')
-    } else if(result.counterparts){setCatalog(result);setTab('photometry')}
-    else if(result.measurements){setTrack(result);setTab('images')}
-    else {setImage(result);setTab('images')}
+    } else if (result.counterparts) {
+      setCatalog(result)
+      setTab('photometry')
+    } else if (result.measurements) {
+      setTrack(result)
+      setTab('images')
+    } else {
+      setImage(result)
+      setTab('images')
+    }
   }
   const availableChannels = [
     ...new Set(

@@ -151,9 +151,8 @@ An archive error returns HTTP 502 with a description. A result truncated by IRSA
 returns `complete=false` and a warning. Invalid coordinates or display parameters
 return HTTP 422. Unknown searches or frames return HTTP 404.
 
-This working copy runs on localhost. A public deployment can add shared storage,
-request admission/rate limits, and a background job queue for lengthy searches or
-bulk frame preparation. Those components can use the same manifest and frame API.
+This working copy runs on localhost. The science API includes a bounded background job queue and cache eviction.
+Public multi-user hosting can add shared storage and request rate limits.
 
 ## Verify
 
@@ -232,3 +231,29 @@ quality flags, and observation date are returned. Artifact-flagged pixels are
 skipped. Downloads are paced and transient failures are counted in warnings.
 This sparse, multi-epoch surface-brightness fingerprint requires further photometric
 and spectral-response treatment for quantitative source analysis.
+
+
+## Source science API
+
+The React Science workspace uses `POST /api/science/jobs` with `kind`, observation
+`ids`, `referenceId`, and fractional `x`/`y` or sky `ra`/`dec`. Supported kinds are
+`matches`, `photometry`, `spectrum`, `track`, `stack`, `shift-stack`, `difference`,
+`discover`, and `catalog`. Optional parameters include `radiusArcsec`, `epochDays`,
+`background`, `eastRate`, `northRate`, `pixels`, and `crossmatch`.
+
+Poll `GET /api/science/jobs/{id}` for progress and results. Release a subscriber
+through `DELETE /api/science/jobs/{id}/{subscription}`. Shared work continues
+while another subscriber remains. Jobs retain completed results for 15 minutes.
+The queue uses two worker threads and admits at most 12 active jobs. At most 256
+exposures are inspected per job and 64 compatible inputs contribute to stacks.
+Results report sampling and retrieval failures.
+
+`GET /api/science/channels` exposes the bundled calibrated channel table.
+`GET /api/science/cache` reports current cache statistics.
+`POST /api/science/evidence` stores an analysis record in SQLite. GET the evidence
+collection or a specific ID to reopen it, and POST assessments to its assessment
+route. OpenAPI documents the exact request schemas and paths.
+
+Use the repository README and requirements review for current processing methods,
+scientific limitations, evidence provenance, and live-check results. Older `/v1`
+and `/api` processing routes retain their existing contracts.

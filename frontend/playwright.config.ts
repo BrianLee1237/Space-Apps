@@ -3,6 +3,7 @@ import path from 'node:path'
 
 export default defineConfig({
   testDir: './tests',
+  testMatch: '**/*.spec.ts',
   fullyParallel: true,
   use: {
     baseURL: 'http://127.0.0.1:8011',

@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .analysis import discover_changes, matched_pairs, track_source
 from .archive import ArchiveError
+from .atlas import atlas_router
 from .frontend import manifest_frame_entry, observation_parts
 from .gaia import gaia_overlay
 from .imaging import output_wcs
@@ -145,10 +146,11 @@ class Assessment(BaseModel):
 
 def science_router(sky, gaia=None):
     router = APIRouter(prefix="/api/science", tags=["Science analysis"])
+    router.include_router(atlas_router(sky.archive), prefix="/atlas")
     jobs = JobManager()
     reviews = ReviewStore(sky.store.root)
 
-    def records_for(identifiers, progress, cancelled):
+    def records_for(identifiers, progress, cancelled, reference_id=None):
         warnings, records = [], []
         selected = identifiers
         for index, identifier in enumerate(selected):
@@ -175,7 +177,11 @@ def science_router(sky, gaia=None):
         # Avoid treating reprocessed releases of a single physical exposure as independent.
         unique = {}
         for record in sorted(
-            records, key=lambda row: "dr1" in row["metadata"].get("collection", "")
+            records,
+            key=lambda row: (
+                row["id"] == reference_id,
+                "dr1" in row["metadata"].get("collection", ""),
+            ),
         ):
             meta = record["metadata"]
             key = (
@@ -253,13 +259,22 @@ def science_router(sky, gaia=None):
                     "The all-detector archive search is truncated; spectral coverage is partial."
                 )
         identifiers, bounded_warnings = bounded_identifiers(identifiers)
+        if (
+            parameters.kind != "spectrum"
+            and parameters.referenceId in parameters.ids
+            and parameters.referenceId not in identifiers
+        ):
+            identifiers[-1] = parameters.referenceId
         warnings.extend(bounded_warnings)
         pin = sky.store.pin(identifiers) if hasattr(sky.store, "pin") else nullcontext()
         with pin:
-            records, notes = records_for(identifiers, progress, cancelled)
+            records, notes = records_for(identifiers, progress, cancelled, parameters.referenceId)
             warnings.extend(notes)
             if not records:
                 raise ValueError("No usable archive exposures were retrieved")
+            if parameters.referenceId and parameters.kind != "spectrum":
+                if not any(row["id"] == parameters.referenceId for row in records):
+                    raise ValueError("The selected reference observation could not be retrieved")
             reference = next(
                 (row for row in records if row["id"] == parameters.referenceId), records[0]
             )
@@ -353,11 +368,14 @@ def science_router(sky, gaia=None):
                     "method": "Full-search native-pixel wavelength and same-field matching",
                 }
             elif parameters.kind == "track":
+                x, y = output_wcs(reference["request"], 512).world_to_pixel(
+                    SkyCoord(ra, dec, unit="deg")
+                )
                 result = track_source(
                     records,
                     reference["id"],
-                    parameters.x,
-                    parameters.y,
+                    float(x) / 511,
+                    1 - float(y) / 511,
                     progress=progress,
                     cancelled=cancelled,
                 )
@@ -411,6 +429,7 @@ def science_router(sky, gaia=None):
                         {
                             "earlierAt": a["observedAt"],
                             "laterAt": b["observedAt"],
+                            "inputObservationIds": [a["id"], b["id"]],
                             "significanceUrl": save_image(render(significance, True)),
                         }
                     )
@@ -438,6 +457,7 @@ def science_router(sky, gaia=None):
                         where=variance > 0,
                     )
                     result["significanceUrl"] = save_image(render(snr, True))
+                    result["inputObservationIds"] = [row["id"] for row in compatible]
                     if rates:
                         static, _, _ = process_stack(
                             compatible,
