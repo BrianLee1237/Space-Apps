@@ -190,8 +190,8 @@ the root URL. Existing `/v1` APIs and `/docs` remain available. `/api/difference
 and `/api/difference.png` implement the Compare tab: both requested observations
 are resampled with bilinear interpolation onto one shared tangent-plane grid and
 subtracted (to minus from), rendered as a zero-centered red/blue PNG. `/api/overlays`
-implements the Gaia DR3 toggle: a cone search against ESA's public Gaia Archive
-TAP+ `sync` endpoint (`gea.esac.esa.int`, no key needed), with each source's
+implements the Gaia DR3 toggle: a cone search through Harvard VizieR's Gaia DR3 catalog, ESA TAP, and ARI TAP
+(no key needed), with each source's
 position linearly propagated by its own proper motion to the observation's
 epoch and projected onto the same output grid `/api/images` renders. `/api/candidates`
 implements the Discover tab (`candidates.py`): differences the earliest and
@@ -257,3 +257,27 @@ route. OpenAPI documents the exact request schemas and paths.
 Use the repository README and requirements review for current processing methods,
 scientific limitations, evidence provenance, and live-check results. Older `/v1`
 and `/api` processing routes retain their existing contracts.
+
+
+## Reliability behavior
+
+Gaia queries share a per-cone lock and persistent catalog cache. Failed providers
+cool down for one minute. The last successful provider is preferred. Previously
+retrieved DR3 rows remain available with an explicit stale warning and original
+retrieval date. Overlay and counterpart routes use observation-manifest epochs
+and remain independent of FITS downloads.
+
+IRSA SIA discovery has a 25-second total retry budget. Other downloads use the
+configured request budget. Retry-After is honored. A failed discovery returns an
+available saved snapshot with a stale warning. Field-size changes at the same
+center reuse actual discovery rows and construct new cutout requests. Search
+snapshots keep their original discovery timestamps.
+
+Initial-image preparation tries up to three exposures. Channel inspection is
+bounded at 256 time-distributed inputs. Repeated upstream failures defer further
+uncached inputs in channel inspection and science jobs, with explicit warnings.
+Cached FITS checksums are verified and damaged products are re-downloaded.
+
+Outages at all live discovery services can still prevent an uncached sky query.
+These failures remain visible with retry instructions. The health endpoint
+checks the local process and does not assert upstream archive availability.

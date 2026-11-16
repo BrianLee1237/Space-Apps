@@ -33,6 +33,8 @@ export type ObservationsResponse = {
   dataUpdatedAt?: string
   dataRelease?: string
   warnings?: string[]
+  initialObservationId?: string | null
+  stale?: boolean
 }
 export type ResolvedTarget = { raDeg: number; decDeg: number; name?: string }
 export type ImageLocation = { xFraction: number; yFraction: number }
@@ -251,9 +253,9 @@ export type Provenance = {
   observations: {
     id: string
     observedAt: string
-    sha256: string
+    sha256: string | null
     release: string
-    processingVersion: string
+    processingVersion: string | null
   }[]
 }
 export type ScienceResult = {

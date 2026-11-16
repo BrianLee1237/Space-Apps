@@ -59,6 +59,22 @@ export async function request<T>(
         typeof body.detail === 'string'
       )
         detail = body.detail
+      else if (
+        body &&
+        typeof body === 'object' &&
+        'detail' in body &&
+        Array.isArray(body.detail)
+      ) {
+        const messages = body.detail.filter(
+          (item): item is { msg: string } =>
+            !!item &&
+            typeof item === 'object' &&
+            'msg' in item &&
+            typeof item.msg === 'string',
+        )
+        if (messages.length)
+          detail = messages.map((item) => item.msg).join('. ')
+      }
     } catch {
       /* Non-JSON error response. */
     }

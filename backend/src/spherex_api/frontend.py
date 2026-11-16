@@ -2,6 +2,7 @@
 
 import json
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Annotated, Literal
@@ -95,7 +96,7 @@ def frontend_router(sky, gaia):
 
     @router.get("/resolve")
     def resolve(name: Annotated[str, Query(min_length=1, max_length=128)]):
-        normalized = name.strip().casefold().replace("ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢", "'")
+        normalized = name.strip().casefold().replace("\u2019", "'")
         aliases = {"eps ind b": "epsilon indi b", "rw aur": "rw aurigae", "r dra": "r draconis"}
         normalized = aliases.get(normalized, normalized)
         for target in TARGETS:
@@ -144,16 +145,42 @@ def frontend_router(sky, gaia):
             )
         frames = manifest["frames"]
         if channel:
+            if len(frames) > 256:
+                count = len(frames)
+                frames = [frames[round(i * (count - 1) / 255)] for i in range(256)]
+                manifest = {
+                    **manifest,
+                    "warnings": [
+                        *manifest["warnings"],
+                        f"Channel inspection samples 256 of {count} exposures across time. "
+                        "Coverage is partial.",
+                    ],
+                }
+            failures = 0
+            failure_lock = threading.Lock()
+            unavailable = threading.Event()
 
             def matches(frame):
+                nonlocal failures
+                if (
+                    unavailable.is_set()
+                    and not sky.store.path("cutouts", frame["frame_id"], ".fits").is_file()
+                ):
+                    return None
                 try:
                     _, metadata = sky.frame(manifest["search_id"], frame["frame_id"])
                     wavelength = metadata.get("central_wavelength_um")
+                    with failure_lock:
+                        failures = 0
                     return (
                         wavelength is not None
                         and channel["WL_MIN"] <= wavelength <= channel["WL_MAX"]
                     )
                 except ArchiveError:
+                    with failure_lock:
+                        failures += 1
+                        if failures >= 3:
+                            unavailable.set()
                     return None
 
             with ThreadPoolExecutor(max_workers=2) as pool:
@@ -169,21 +196,51 @@ def frontend_router(sky, gaia):
                 "warnings": [
                     *manifest["warnings"],
                     f"Channel {index} window "
-                    f"{channel['WL_MIN']:.4f}ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“{channel['WL_MAX']:.4f} Ãƒâ€šÃ‚Âµm. "
+                    f"{channel['WL_MIN']:.4f} - {channel['WL_MAX']:.4f} \u00b5m. "
                     "Pixels outside that approximate spectral-WCS window are transparent.",
                 ],
             }
             if failed_count:
                 manifest["warnings"].append(
-                    f"{failed_count} cutouts failed retrieval. This channel sequence is partial."
+                    f"{failed_count} exposures could not be inspected or were deferred "
+                    "during archive failures. This channel sequence is partial."
                 )
         limits = {}
+        initial_id = None
         if frames:
-            _, first_metadata = sky.frame(manifest["search_id"], frames[0]["frame_id"])
-            percentiles = first_metadata.get("science_percentiles_1_50_99")
-            if percentiles:
-                low, _, high = percentiles
-                limits = {"vmin": low, "vmax": high if high > low else low + 1}
+            cached_frames = [
+                frame
+                for frame in frames
+                if sky.store.path("cutouts", frame["frame_id"], ".fits").is_file()
+            ]
+            candidates = cached_frames[:3] or frames[:3]
+            for first in candidates:
+                try:
+                    _, first_metadata = sky.frame(manifest["search_id"], first["frame_id"])
+                    initial_id = manifest["search_id"] + "." + first["frame_id"]
+                    percentiles = first_metadata.get("science_percentiles_1_50_99")
+                    if percentiles:
+                        low, _, high = percentiles
+                        limits = {"vmin": low, "vmax": high if high > low else low + 1}
+                    break
+                except ArchiveError as exc:
+                    manifest = {
+                        **manifest,
+                        "warnings": [
+                            *manifest["warnings"],
+                            f"Initial cutout {first['frame_id']} could not load ({exc}). "
+                            "Trying another exposure.",
+                        ],
+                    }
+            if initial_id is None:
+                manifest = {
+                    **manifest,
+                    "warnings": [
+                        *manifest["warnings"],
+                        "Initial cutouts are unavailable. Select an epoch and retry its image. "
+                        "A shared brightness scale could not be established.",
+                    ],
+                }
         result = []
         for frame in frames:
             identifier = manifest["search_id"] + "." + frame["frame_id"]
@@ -222,6 +279,8 @@ def frontend_router(sky, gaia):
             "dataRelease": ", ".join(sorted({o["release"] for o in result})),
             "searchId": manifest["search_id"],
             "selectedDetector": detector,
+            "initialObservationId": initial_id,
+            "stale": manifest.get("stale", False),
             "warnings": manifest["warnings"],
         }
 
@@ -377,8 +436,7 @@ def frontend_router(sky, gaia):
         observationId: Annotated[str, Query(min_length=1)],
         catalog: Literal["gaia-dr3"] = "gaia-dr3",
     ):
-        search_id, frame_id = observation_parts(observationId)
-        _, metadata = sky.frame(search_id, frame_id)
+        search_id, _, metadata = manifest_frame_entry(sky, observationId)
         request = SearchRequest.model_validate(sky.manifest(search_id)["query"])
         try:
             sources, warnings = gaia_overlay(gaia, request, metadata["observed_at_utc"])
@@ -493,7 +551,7 @@ def frontend_router(sky, gaia):
         if ra is not None and dec is not None:
             target_ra, target_dec = ra, dec
             fov_arcmin = 2.0
-            label = f"RA {ra:.5f}Ãƒâ€šÃ‚Â°, Dec {dec:.5f}Ãƒâ€šÃ‚Â°"
+            label = f"RA {ra:.5f}\u00b0, Dec {dec:.5f}\u00b0"
         elif observationId is not None and x is not None and y is not None:
             search_id, _ = observation_parts(observationId)
             request = SearchRequest.model_validate(sky.manifest(search_id)["query"])

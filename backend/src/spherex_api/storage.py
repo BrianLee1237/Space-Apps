@@ -65,6 +65,16 @@ class Store:
         content = canonical(value).encode()
         self.write_bytes(self.path(kind, identifier), content)
 
+    def discard_frame(self, frame_id):
+        """Remove a damaged downloaded product and its derived metadata."""
+        with FileLock(str(self.root / "budget.lock"), timeout=30):
+            for kind, suffix in (("cutouts", ".fits"), ("metadata", ".json")):
+                path = self.path(kind, frame_id, suffix)
+                if path.exists():
+                    size = path.stat().st_size
+                    path.unlink()
+                    self._used_bytes = max(0, self._used_bytes - size)
+
     def write_bytes(self, path, content):
         # Serialize writes across threads/processes; never silently evict scientific products.
         with FileLock(str(self.root / "budget.lock"), timeout=30):
@@ -144,11 +154,14 @@ class Store:
             "protected": "Evidence, reports, search manifests, active jobs, and recent exposures",
         }
 
-    def cached_search(self, query_key):
+    def cached_search(self, query_key, allow_stale=False):
         try:
             pointer = self.read("queries", query_key)
-            if time.time() - pointer["created_unix"] < self.settings.search_ttl_seconds:
+            if (
+                allow_stale
+                or time.time() - pointer["created_unix"] < self.settings.search_ttl_seconds
+            ):
                 return self.read("searches", pointer["search_id"])
-        except KeyError:
+        except (KeyError, ValueError, TypeError):
             pass
         return None

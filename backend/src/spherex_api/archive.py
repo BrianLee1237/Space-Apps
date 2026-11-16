@@ -5,6 +5,8 @@ import math
 import re
 import threading
 import time
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlencode, urlsplit
 
 import httpx
@@ -125,13 +127,28 @@ class ArchiveClient:
         if not self.slots.acquire(timeout=20):
             raise CapacityError("Archive request capacity is busy; try again shortly")
         try:
+            budget = (
+                min(self.settings.timeout_seconds, 25)
+                if url == SIA_URL
+                else self.settings.timeout_seconds
+            )
+            deadline = time.monotonic() + budget
             for attempt in range(self.settings.retries + 1):
+                remaining = max(0.1, deadline - time.monotonic())
+                delay = min(2**attempt, 4)
                 try:
-                    with self.client.stream("GET", url, params=params) as response:
+                    with self.client.stream(
+                        "GET",
+                        url,
+                        params=params,
+                        timeout=httpx.Timeout(remaining, connect=min(remaining, 10)),
+                    ) as response:
                         response.raise_for_status()
                         chunks = []
                         size = 0
                         for chunk in response.iter_bytes():
+                            if time.monotonic() > deadline:
+                                raise ArchiveError("IRSA download exceeded its request time budget")
                             size += len(chunk)
                             if size > self.settings.max_response_bytes:
                                 raise ArchiveError(
@@ -145,10 +162,26 @@ class ArchiveClient:
                         raise ArchiveError(
                             f"IRSA returned HTTP {exc.response.status_code}"
                         ) from exc
+                    retry_after = exc.response.headers.get("Retry-After")
+                    if retry_after:
+                        try:
+                            delay = max(delay, float(retry_after))
+                        except ValueError:
+                            try:
+                                delay = max(
+                                    delay,
+                                    (
+                                        parsedate_to_datetime(retry_after) - datetime.now(UTC)
+                                    ).total_seconds(),
+                                )
+                            except (ValueError, TypeError):
+                                pass
                 except httpx.TransportError as exc:
                     if attempt == self.settings.retries:
                         raise ArchiveError("IRSA network request failed or timed out") from exc
-                time.sleep(min(2**attempt, 4))
+                if delay + 0.1 >= deadline - time.monotonic():
+                    raise ArchiveError("IRSA remains unavailable after the bounded retry window")
+                time.sleep(delay)
         finally:
             self.slots.release()
 

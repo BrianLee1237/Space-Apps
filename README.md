@@ -58,10 +58,25 @@ mandatory animation interval. Playback speed controls time on screen separately.
 ## Processing and data access
 
 Public SPHEREx DR1/QR3 SIA searches and FITS cutouts use anonymous IRSA access.
-Gaia DR3 overlays and counterpart checks use ESA TAP with an ARI mirror and a
-15-minute cone-search cache. Positions use linear proper-motion propagation from
+Gaia DR3 overlays and counterpart checks use Harvard VizieR, ESA TAP, and ARI
+providers, with a persistent 15-minute cone-search cache and shared in-flight
+requests. Cached catalog rows remain available during provider outages, with
+retrieval dates and provider names displayed. Positions use linear proper-motion propagation from
 the catalog epoch. External services can time out and their errors remain visible.
 No API key is required for these services.
+
+During IRSA discovery outages, previously saved searches remain usable and show
+an explicit stale-data warning. Equivalent coordinate formatting shares a search.
+Field-size changes can reuse discovery metadata at the same center and download
+new native cutouts. A new uncached sky position still requires IRSA discovery.
+Search retries have a 25-second total budget and respect Retry-After. Repeated
+failures defer uncached batch downloads while allowing cached inputs to proceed.
+
+The viewer retries transient image failures, offers manual retry, and waits for
+the current exposure to load before advancing playback. Gaia failures stay in the
+catalog panel. Catalog overlays and counterpart queries use manifest dates and
+can run independently of the FITS cutout service. Corrupted FITS cache entries
+are detected by checksum and downloaded again.
 
 The new `/api/science/jobs` endpoint accepts analysis requests, returns progress,
 and supports subscriber-aware cancellation and duplicate-request sharing. Jobs

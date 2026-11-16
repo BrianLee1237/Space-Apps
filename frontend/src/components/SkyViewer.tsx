@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import { Maximize, Minus, Plus, RotateCcw, ImageOff } from 'lucide-react'
 import { imageURL } from '../services/api'
@@ -24,6 +24,7 @@ type Props = {
   inverted: boolean
   onInspect: (p: ImageLocation) => void
   onCandidate: (c: Candidate) => void
+  onFrameReady?: (id: string) => void
 }
 export default function SkyViewer({
   frame,
@@ -39,20 +40,37 @@ export default function SkyViewer({
   inverted,
   onInspect,
   onCandidate,
+  onFrameReady,
 }: Props) {
   const root = useRef<HTMLDivElement>(null),
     image = useRef<HTMLImageElement>(null)
   const [zoomState, setZoom] = useState({ source: '', factor: 1 }),
     [failedSource, setFailedSource] = useState<string | null>(null)
+  const [retry, setRetry] = useState({ source: '', attempt: 0 })
+  const [loadedSource, setLoadedSource] = useState<string | null>(null)
   const overlayUrl = differenceUrl || combineUrl
   const imageSrc = overlayUrl
     ? imageURL(overlayUrl)
     : frame?.imageUrl
       ? imageURL(frame.imageUrl)
       : null
-  const imageFailed = !!imageSrc && failedSource === imageSrc
+  const attempt = retry.source === imageSrc ? retry.attempt : 0
+  const requestSrc =
+    imageSrc && attempt > 0
+      ? `${imageSrc}${imageSrc.includes('?') ? '&' : '?'}retry=${attempt}`
+      : imageSrc
+  const imageFailed = !!requestSrc && failedSource === requestSrc
+  const imageLoaded = loadedSource === requestSrc
   const zoom = zoomState.source === imageSrc ? zoomState.factor : 1
   const show = !!imageSrc && !imageFailed
+  useEffect(() => {
+    if (!imageFailed || !imageSrc || attempt >= 2) return
+    const timer = window.setTimeout(
+      () => setRetry({ source: imageSrc, attempt: attempt + 1 }),
+      1000 * 2 ** attempt,
+    )
+    return () => window.clearTimeout(timer)
+  }, [imageFailed, imageSrc, attempt])
   function pick(e: MouseEvent<HTMLImageElement>) {
     if (!frame || overlayUrl || !image.current || !image.current.naturalWidth)
       return
@@ -81,6 +99,7 @@ export default function SkyViewer({
       className="sky-viewer"
       ref={root}
       aria-label="SPHEREx image viewer"
+      aria-busy={show && !imageLoaded}
     >
       {frame && (
         <div className="viewer-tag">
@@ -157,7 +176,7 @@ export default function SkyViewer({
             <div className="sky-image-content">
               <img
                 ref={image}
-                src={imageSrc!}
+                src={requestSrc!}
                 className="sky-image"
                 alt={
                   differenceUrl
@@ -166,7 +185,11 @@ export default function SkyViewer({
                       ? 'Combined exposure produced by the backend'
                       : 'SPHEREx observation returned by the backend'
                 }
-                onError={() => setFailedSource(imageSrc)}
+                onError={() => setFailedSource(requestSrc)}
+                onLoad={() => {
+                  setLoadedSource(requestSrc)
+                  if (frame && !overlayUrl) onFrameReady?.(frame.id)
+                }}
                 onClick={pick}
                 draggable={false}
                 style={{
@@ -293,7 +316,9 @@ export default function SkyViewer({
                         cy={p.yFraction * 100}
                         r={frame?.id === p.observationId ? 0.9 : 0.45}
                         stroke={
-                          frame?.id === p.observationId ? 'var(--accent)' : 'var(--data)'
+                          frame?.id === p.observationId
+                            ? 'var(--accent)'
+                            : 'var(--data)'
                         }
                         fill="none"
                         strokeWidth=".22"
@@ -327,6 +352,11 @@ export default function SkyViewer({
           </div>
         </div>
       )}
+      {show && !imageLoaded && (
+        <div className="image-loading-state" role="status">
+          Loading selected exposure…
+        </div>
+      )}
       {!show && (
         <div className="viewer-empty" role="status">
           {status === 'loading' ? (
@@ -349,11 +379,24 @@ export default function SkyViewer({
               : status === 'error'
                 ? error
                 : imageFailed
-                  ? 'The backend image could not be loaded.'
+                  ? attempt < 2
+                    ? 'Retrying the archive image…'
+                    : 'This exposure is unavailable. Retry it or choose another epoch.'
                   : status === 'empty'
                     ? 'No observations returned for this search.'
                     : 'Enter coordinates to load observations.'}
           </span>
+          {imageFailed && (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() =>
+                setRetry({ source: imageSrc!, attempt: attempt + 1 })
+              }
+            >
+              Retry image
+            </button>
+          )}
         </div>
       )}
       {frame && (

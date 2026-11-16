@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 def create_app(settings: Settings | None = None, service=None, gaia=None):
     settings = settings or Settings.from_env()
     sky = service or SkyService(settings)
-    gaia = gaia or GaiaClient(settings)
+    gaia = gaia or GaiaClient(settings, store=sky.store)
     science, jobs = science_router(sky, gaia)
 
     @asynccontextmanager
@@ -52,7 +52,7 @@ def create_app(settings: Settings | None = None, service=None, gaia=None):
         app.add_middleware(
             CORSMiddleware,
             allow_origins=origins,
-            allow_methods=["GET", "POST"],
+            allow_methods=["GET", "POST", "DELETE"],
             allow_headers=["Content-Type"],
             expose_headers=[
                 "X-Preview-Vmin",
@@ -86,7 +86,12 @@ def create_app(settings: Settings | None = None, service=None, gaia=None):
 
     @app.exception_handler(KeyError)
     def missing(request: Request, exc: KeyError):
-        return JSONResponse(status_code=404, content={"detail": "Unknown search or frame"})
+        detail = "This observation is absent from this backend cache. Reload its sky field."
+        if request.url.path.startswith("/api/science/jobs/"):
+            detail = "This analysis job expired or the backend restarted. Run the analysis again."
+        elif request.url.path.startswith("/api/science/evidence/"):
+            detail = "This evidence record is absent from the current backend data directory."
+        return JSONResponse(status_code=404, content={"detail": detail})
 
     @app.get("/health")
     def health():

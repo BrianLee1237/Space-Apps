@@ -28,9 +28,14 @@ export default function SkyAtlas({
         event.source !== host.current?.contentWindow
       )
         return
-      if (event.data?.type === 'atlas-ready') setReady(true)
-      if (event.data?.type === 'atlas-error')
+      if (event.data?.type === 'atlas-ready') {
+        setReady(true)
+        setError('')
+      }
+      if (event.data?.type === 'atlas-error') {
+        setReady(false)
         setError(String(event.data.message))
+      }
       if (
         event.data?.type === 'atlas-picked' &&
         Number.isFinite(event.data.ra) &&
@@ -61,7 +66,11 @@ export default function SkyAtlas({
           <select
             aria-label="Atlas wavelength channel"
             value={channel}
-            onChange={(event) => setChannel(Number(event.target.value))}
+            onChange={(event) => {
+              setReady(false)
+              setError('')
+              setChannel(Number(event.target.value))
+            }}
           >
             {channels.map((row) => (
               <option key={row.index} value={row.index}>

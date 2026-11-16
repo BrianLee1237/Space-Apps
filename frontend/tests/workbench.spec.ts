@@ -120,3 +120,119 @@ test('source selection opens cancellable scientific tools on mobile', async ({
     ),
   ).toBe(true)
 })
+
+test('Gaia failure stays in the catalog panel and can recover', async ({
+  page,
+}) => {
+  let unavailable = true
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.startsWith('/api/images/'))
+      await route.fulfill({ contentType: 'image/png', body: png })
+    else if (url.pathname === '/api/observations')
+      await route.fulfill({ json: { observations: frames } })
+    else if (url.pathname === '/api/overlays') {
+      if (unavailable)
+        await route.fulfill({
+          status: 502,
+          json: { detail: 'Catalog provider unavailable' },
+        })
+      else
+        await route.fulfill({
+          json: {
+            sources: [
+              {
+                id: 'fixture',
+                label: 'Gaia DR3 test catalog row',
+                xFraction: 0.7,
+                yFraction: 0.2,
+              },
+            ],
+            warnings: [],
+          },
+        })
+    } else await route.fulfill({ json: {} })
+  })
+  await page.goto('/?ra=133.7&dec=-7.2&fov=10')
+  await expect(page.locator('.sky-image')).toBeVisible()
+  await page.getByRole('switch', { name: 'Gaia DR3' }).check()
+  await expect(
+    page.getByText('Catalog provider unavailable', { exact: true }),
+  ).toBeVisible()
+  await expect(page.locator('.sky-image')).toBeVisible()
+  await expect(
+    page.getByText('Unable to load data', { exact: true }),
+  ).toHaveCount(0)
+  await page.getByRole('switch', { name: 'Gaia DR3' }).uncheck()
+  unavailable = false
+  await page.getByRole('switch', { name: 'Gaia DR3' }).check()
+  await expect(page.getByTitle('Gaia DR3 test catalog row')).toBeVisible()
+  await expect(
+    page.getByText('Catalog provider unavailable', { exact: true }),
+  ).toHaveCount(0)
+})
+
+test('playback waits for an exposure to load before advancing again', async ({
+  page,
+}) => {
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.startsWith('/api/images/')) {
+      if (url.pathname.endsWith('frame-6.png')) await gate
+      await route.fulfill({ contentType: 'image/png', body: png })
+    } else if (url.pathname === '/api/observations')
+      await route.fulfill({ json: { observations: frames } })
+    else await route.fulfill({ json: {} })
+  })
+  await page.goto('/?ra=133.7&dec=-7.2&fov=10')
+  await page
+    .locator('.sky-image')
+    .evaluate((image: HTMLImageElement) => image.decode())
+  await page
+    .getByRole('button', { name: 'Play observations', exact: true })
+    .click()
+  await expect(page).toHaveURL(new RegExp('obs=' + frames[6].id.split('.')[1]))
+  await page.waitForTimeout(1400)
+  await expect(page).toHaveURL(new RegExp('obs=' + frames[6].id.split('.')[1]))
+  release()
+  await expect(page).toHaveURL(new RegExp('obs=' + frames[0].id.split('.')[1]))
+})
+
+test('transient image failures retry the same exposure', async ({ page }) => {
+  const requests: string[] = []
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.startsWith('/api/images/')) {
+      if (url.pathname.endsWith('frame-0.png')) {
+        requests.push(url.search)
+        if (requests.length <= 2) {
+          await route.fulfill({ status: 503, body: 'Temporary outage' })
+          return
+        }
+      }
+      await route.fulfill({ contentType: 'image/png', body: png })
+    } else if (url.pathname === '/api/observations')
+      await route.fulfill({ json: { observations: frames } })
+    else await route.fulfill({ json: {} })
+  })
+  await page.goto('/?ra=133.7&dec=-7.2&fov=10')
+  await expect
+    .poll(
+      async () =>
+        page
+          .locator('.sky-image')
+          .evaluateAll((images: HTMLImageElement[]) =>
+            images.some((image) => image.complete && image.naturalWidth > 0),
+          ),
+      { timeout: 12000 },
+    )
+    .toBe(true)
+  expect(requests).toEqual(['', '?retry=1', '?retry=2'])
+  await expect(
+    page.getByText('Unable to display image', { exact: true }),
+  ).toHaveCount(0)
+})

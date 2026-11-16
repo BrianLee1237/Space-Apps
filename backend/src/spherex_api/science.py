@@ -150,15 +150,29 @@ def science_router(sky, gaia=None):
     jobs = JobManager()
     reviews = ReviewStore(sky.store.root)
 
-    def records_for(identifiers, progress, cancelled, reference_id=None):
+    def records_for(identifiers, progress, cancelled, reference_id=None, metadata_only=False):
         warnings, records = [], []
+        consecutive_failures, deferred = 0, 0
         selected = identifiers
         for index, identifier in enumerate(selected):
             cancelled()
             search_id, frame_id, entry = manifest_frame_entry(sky, identifier)
+            path = sky.store.path("cutouts", frame_id, ".fits")
+            if consecutive_failures >= 3 and not path.exists() and not metadata_only:
+                deferred += 1
+                progress(index + 1, len(selected), "Using available exposures during IRSA outage")
+                continue
             try:
-                path, metadata = sky.frame(search_id, frame_id)
+                if metadata_only:
+                    try:
+                        metadata = {**entry, **sky.store.read("metadata", frame_id)}
+                    except (KeyError, ValueError):
+                        metadata = entry
+                else:
+                    path, metadata = sky.frame(search_id, frame_id)
+                    consecutive_failures = 0
             except ArchiveError as exc:
+                consecutive_failures += 1
                 warnings.append(f"Skipped {identifier}: {exc}")
                 continue
             records.append(
@@ -174,6 +188,11 @@ def science_router(sky, gaia=None):
                 }
             )
             progress(index + 1, len(selected), "Inspecting actual exposure metadata")
+        if deferred:
+            warnings.append(
+                f"Deferred {deferred} uncached exposures after repeated IRSA failures. "
+                "The analysis uses available exposures. Retry when the archive recovers."
+            )
         # Avoid treating reprocessed releases of a single physical exposure as independent.
         unique = {}
         for record in sorted(
@@ -268,7 +287,13 @@ def science_router(sky, gaia=None):
         warnings.extend(bounded_warnings)
         pin = sky.store.pin(identifiers) if hasattr(sky.store, "pin") else nullcontext()
         with pin:
-            records, notes = records_for(identifiers, progress, cancelled, parameters.referenceId)
+            records, notes = records_for(
+                identifiers,
+                progress,
+                cancelled,
+                parameters.referenceId,
+                metadata_only=parameters.kind == "catalog",
+            )
             warnings.extend(notes)
             if not records:
                 raise ValueError("No usable archive exposures were retrieved")

@@ -34,7 +34,7 @@ same-detector, same-channel comparison data.
 | Advanced subtraction | Reference-star offsets, empirical PSF cross-convolution when at least three usable stars exist per epoch, robust scaling, constant/planar background, variance propagation, and significance preview |
 | Motion analysis | Weighted tangent-plane fit, centroid errors and assumed 0.5-arcsec floor, reference-star correction where supported, selectable east/north motion-compensated stacking |
 | 102-channel atlas | On-demand Aladin Lite view of the real IRSA DR1 all-sky HiPS cube. Channels 51/52 are labeled blank dichroic layers. Click a sky position to load dated observations |
-| Gaia DR3 | Brightness-limited overlay and nearby counterpart query, ESA/ARI failover and 15-minute cache. Linear proper motion excludes parallax and radial velocity |
+| Gaia DR3 | Brightness-limited overlay and nearby counterpart query, Harvard VizieR/ESA/ARI failover and persistent, shared 15-minute cache. Linear proper motion excludes parallax and radial velocity |
 | Updated data | Configurable collections and Refresh archive control create new search snapshots |
 | Work management | Two-worker analysis queue, bounded admission, progress, subscriber-aware cancellation and deduplication |
 | Cache management | Idle FITS/preview eviction under the cache budget, active analysis pinning, preserved manifests/reports/evidence |
@@ -103,8 +103,8 @@ reference-star offsets, empirical PSFs, job cancellation/deduplication, evidence
 persistence, cache protection, and API validation. Browser checks exercise full
 search selection independently of playback, source selection, mobile layout,
 live charts/exports, saved evidence reload, and atlas navigation.
-The final local checks passed 46 backend tests, three scientific motion-stack
-tests, and two browser regression tests, with clean backend/frontend lint and a
+The final local checks passed 57 backend tests, three scientific motion-stack
+tests, and five browser regression tests, with clean backend/frontend lint and a
 successful production build. A PDF parser verified its embedded evidence JSON.
 The live atlas check confirmed exact channel-100 tiles and no browser runtime
 errors after explicit channel-to-tile mapping replaced frequency interpolation.
@@ -121,3 +121,25 @@ errors after explicit channel-to-tile mapping replaced frequency interpolation.
 One Starlette/httpx test-client deprecation warning remains. The on-demand Aladin
 bundle exceeds Vite’s size advisory. Public hosting and container execution have
 been deferred and unverified in this task.
+
+
+## Upstream reliability review
+
+The current fixes preserve the latest Skyframe Observatory palette and branding.
+Live checks reproduced IRSA SIA and TAP 502 responses, ESA connection timeouts,
+and ARI read timeouts. Harvard VizieR returned genuine I/355 Gaia DR3 rows for the
+active field. The API projected 43 markers, with the next epoch reusing the
+persistent cone cache. The query records its provider and retrieval time.
+
+IRSA FITS cutouts remained reachable during the metadata-service failure. A
+live WISE-field request returned HTTP 200 and a valid multi-extension FITS image.
+Saved discovery snapshots support existing fields and new field sizes at the
+same center. Their original retrieval dates remain intact. Newly uncached sky
+positions remain dependent on the external discovery service.
+
+Regression tests cover concurrent/persistent Gaia caching, labeled stale catalogs,
+stale search recovery, equivalent coordinate serialization, field-size cutout
+regeneration, initial-cutout fallback, corrupted-cache repair, invalid upstream
+FITS responses, Retry-After, bounded discovery retries, cancellation CORS, and
+batch-download deferral. Browser tests cover catalog failure/recovery without
+hiding the image, exposure-load-aware playback, and automatic image retry.

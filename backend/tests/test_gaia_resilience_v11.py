@@ -35,15 +35,16 @@ def test_gaia_primary_json_is_cached_without_contacting_mirror(tmp_path):
 
     def upstream(request):
         requests.append((request.url.host, str(request.content)))
-        if request.url.host != "gea.esac.esa.int":
-            raise AssertionError("ARI should not be contacted when ESA succeeds")
+        if request.url.host == "vizier.cfa.harvard.edu":
+            return httpx.Response(503)
+        assert request.url.host == "gea.esac.esa.int"
         return httpx.Response(200, json=GAIA_JSON)
 
     client = GaiaClient(Settings(data_dir=tmp_path), transport=httpx.MockTransport(upstream))
     cols, rows = client.cone_search(315.419398, 30.882677, 0.1, 75)
     assert cols[0] == "source_id" and rows[0][0] == 1234567891234567890
     assert client.cone_search(315.419398, 30.882677, 0.1, 75) == (cols, rows)
-    assert len(requests) == 1
+    assert len(requests) == 2
 
 
 def test_gaia_esa_502_uses_real_ari_dr3_csv_then_caches(tmp_path):
@@ -51,7 +52,7 @@ def test_gaia_esa_502_uses_real_ari_dr3_csv_then_caches(tmp_path):
 
     def upstream(request):
         providers.append(request.url.host)
-        if request.url.host == "gea.esac.esa.int":
+        if request.url.host in {"gea.esac.esa.int", "vizier.cfa.harvard.edu"}:
             return httpx.Response(502, text="upstream down")
         assert request.url.host == "gaia.ari.uni-heidelberg.de"
         assert request.method == "GET"
@@ -65,16 +66,16 @@ def test_gaia_esa_502_uses_real_ari_dr3_csv_then_caches(tmp_path):
     assert rows[0][0] == "1234567891234567890"  # Preserve 64-bit source ID exactly.
     assert rows[0][1] == pytest.approx(315.419398)
     assert rows[1][4] is None and rows[1][5] is None
-    assert providers == ["gea.esac.esa.int", "gaia.ari.uni-heidelberg.de"]
+    assert providers == ["vizier.cfa.harvard.edu", "gea.esac.esa.int", "gaia.ari.uni-heidelberg.de"]
     assert client.cone_search(315.419398, 30.882677, 0.1, 75) == (cols, rows)
-    assert len(providers) == 2  # Same sky position/field reused from local cache.
+    assert len(providers) == 3  # Same sky position/field reused from local cache.
 
 
 def test_gaia_falls_back_when_esa_responds_with_invalid_json(tmp_path):
     def upstream(request):
         return (
             httpx.Response(200, text="broken")
-            if request.url.host == "gea.esac.esa.int"
+            if request.url.host != "gaia.ari.uni-heidelberg.de"
             else httpx.Response(200, text=GAIA_CSV)
         )
 
@@ -90,6 +91,6 @@ def test_gaia_both_services_unavailable_is_honest_error(tmp_path):
         return httpx.Response(502, text="upstream unavailable")
 
     client = GaiaClient(Settings(data_dir=tmp_path), transport=httpx.MockTransport(upstream))
-    with pytest.raises(ArchiveError, match="both ESA and ARI"):
+    with pytest.raises(ArchiveError, match="Harvard VizieR, ESA, and ARI"):
         client.cone_search(315, 31, 0.05, 20)
-    assert calls == ["gea.esac.esa.int", "gaia.ari.uni-heidelberg.de"]
+    assert calls == ["vizier.cfa.harvard.edu", "gea.esac.esa.int", "gaia.ari.uni-heidelberg.de"]

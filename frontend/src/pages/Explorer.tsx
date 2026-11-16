@@ -135,6 +135,12 @@ export default function Explorer() {
       id: string
       data: OverlayResponse
     } | null>(null)
+  const [gaiaState, setGaiaState] = useState({
+    id: '',
+    loading: false,
+    error: '',
+  })
+  const [readyFrameId, setReadyFrameId] = useState<string | null>(null)
   const [selection, setSelection] = useState<Selection>(null)
   const [spectrum, setSpectrum] = useState<SpectrumResponse | null>(null),
     [spectrumBusy, setSpectrumBusy] = useState(false),
@@ -183,6 +189,12 @@ export default function Explorer() {
     ? { ...rawFrame, ...(frameDetails.id === rawFrame.id ? frameDetails : {}) }
     : null
   const frameId = rawFrame?.id
+  const nextPlaybackIndex = frames.findIndex(
+    (observation, i) =>
+      i > index &&
+      Date.parse(observation.observedAt) >=
+        Date.parse(rawFrame?.observedAt ?? '') + epochDays * 86400000,
+  )
   const gaia =
     gaiaEnabled && gaiaResult?.id === frameId ? gaiaResult.data : null
   const timelineFrames =
@@ -236,10 +248,10 @@ export default function Explorer() {
   }, [frameId])
   useEffect(() => {
     if (!frames.length) return
-    const next = frames[(index + 1) % frames.length]
+    const next = frames[nextPlaybackIndex < 0 ? 0 : nextPlaybackIndex]
     const preload = new Image()
     preload.src = imageURL(next.imageUrl)
-  }, [frames, index])
+  }, [frames, nextPlaybackIndex])
 
   useEffect(() => {
     try {
@@ -249,34 +261,47 @@ export default function Explorer() {
     }
   }, [notes])
   useEffect(() => {
-    if (!playing || playbackFrames.length < 2) return
-    const handle = window.setInterval(
-      () =>
-        setIndex((current) => {
-          const after =
-            Date.parse(frames[current].observedAt) + epochDays * 86400000
-          const next = frames.findIndex(
-            (observation, i) =>
-              i > current && Date.parse(observation.observedAt) >= after,
-          )
-          return next < 0 ? 0 : next
-        }),
+    if (!playing || playbackFrames.length < 2 || readyFrameId !== frameId)
+      return
+    const handle = window.setTimeout(
+      () => setIndex(nextPlaybackIndex < 0 ? 0 : nextPlaybackIndex),
       speed,
     )
-    return () => window.clearInterval(handle)
-  }, [playing, frames, playbackFrames.length, epochDays, speed])
+    return () => window.clearTimeout(handle)
+  }, [
+    playing,
+    playbackFrames.length,
+    readyFrameId,
+    frameId,
+    nextPlaybackIndex,
+    speed,
+  ])
   useEffect(() => {
     if (!gaiaEnabled || !frameId) return
     const ctrl = new AbortController()
+    const timer = window.setTimeout(
+      () => setGaiaState({ id: frameId, loading: true, error: '' }),
+      0,
+    )
     void getGaiaOverlay(frameId, ctrl.signal)
-      .then((data) => setGaiaResult({ id: frameId, data }))
+      .then((data) => {
+        if (ctrl.signal.aborted) return
+        setGaiaResult({ id: frameId, data })
+        setGaiaState({ id: frameId, loading: false, error: '' })
+      })
       .catch((e) => {
         if (!ctrl.signal.aborted)
-          setLoadError(
-            e instanceof Error ? e.message : 'Unable to load Gaia overlay.',
-          )
+          setGaiaState({
+            id: frameId,
+            loading: false,
+            error:
+              e instanceof Error ? e.message : 'Unable to load Gaia overlay.',
+          })
       })
-    return () => ctrl.abort()
+    return () => {
+      window.clearTimeout(timer)
+      ctrl.abort()
+    }
   }, [gaiaEnabled, frameId]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -318,6 +343,8 @@ export default function Explorer() {
     nextBand: BandSelection = band,
     refresh = false,
   ) {
+    const restoreParameters = restored.current
+    restored.current = new URLSearchParams()
     abort.current?.abort()
     const ctrl = new AbortController()
     abort.current = ctrl
@@ -368,6 +395,20 @@ export default function Explorer() {
     setDec(String(next.decDeg))
     setFov(next.fovArcmin)
     const url = new URL(window.location.href)
+    if (!restoreParameters.has('ra')) {
+      for (const parameter of [
+        'evidence',
+        'source',
+        'sx',
+        'sy',
+        'sra',
+        'sdec',
+        'obs',
+        'from',
+        'to',
+      ])
+        url.searchParams.delete(parameter)
+    }
     url.searchParams.set('ra', String(next.raDeg))
     url.searchParams.set('dec', String(next.decDeg))
     url.searchParams.set('fov', String(next.fovArcmin))
@@ -380,17 +421,17 @@ export default function Explorer() {
       const data = await getObservations(next, nextBand, ctrl.signal, refresh)
       if (ctrl.signal.aborted || seq.current !== requestId) return
       const findRestored = (key: string, fallback: number) => {
-        const id = restored.current.get(key)
+        const id = restoreParameters.get(key)
         const found = id
           ? data.observations.findIndex((frame) => frame.id.endsWith('.' + id))
           : -1
         return found >= 0 ? found : fallback
       }
       const restoredSource = data.observations.find((observation) =>
-        observation.id.endsWith('.' + restored.current.get('source')),
+        observation.id.endsWith('.' + restoreParameters.get('source')),
       )
-      const sx = Number(restored.current.get('sx')),
-        sy = Number(restored.current.get('sy'))
+      const sx = Number(restoreParameters.get('sx')),
+        sy = Number(restoreParameters.get('sy'))
       if (
         restoredSource &&
         Number.isFinite(sx) &&
@@ -400,11 +441,11 @@ export default function Explorer() {
         sy >= 0 &&
         sy <= 1
       ) {
-        const sra = Number(restored.current.get('sra')),
-          sdec = Number(restored.current.get('sdec'))
+        const sra = Number(restoreParameters.get('sra')),
+          sdec = Number(restoreParameters.get('sdec'))
         const skyPosition =
-          restored.current.has('sra') &&
-          restored.current.has('sdec') &&
+          restoreParameters.has('sra') &&
+          restoreParameters.has('sdec') &&
           Number.isFinite(sra) &&
           Number.isFinite(sdec)
             ? { ra: sra, dec: sdec }
@@ -416,7 +457,13 @@ export default function Explorer() {
           ...skyPosition,
         })
       }
-      setIndex(findRestored('obs', 0))
+      const initialIndex = Math.max(
+        0,
+        data.observations.findIndex(
+          (observation) => observation.id === data.initialObservationId,
+        ),
+      )
+      setIndex(findRestored('obs', initialIndex))
       setFrom(findRestored('from', 0))
       setTo(findRestored('to', Math.max(0, data.observations.length - 1)))
       setPlaying(false)
@@ -467,6 +514,7 @@ export default function Explorer() {
   }
   function updatePlaying(value: boolean) {
     if (value) {
+      setViewerMode('observations')
       diffSeq.current++
       combineSeq.current++
       if (['difference', 'stack'].includes(mainJobKind.current))
@@ -957,7 +1005,15 @@ export default function Explorer() {
                 gaia={gaiaEnabled}
                 onGaia={setGaiaEnabled}
                 hasFrames={!!frame}
-                gaiaWarnings={gaia?.warnings}
+                gaiaWarnings={[
+                  ...(gaia?.warnings ?? []),
+                  ...(gaiaState.id === frameId && gaiaState.loading
+                    ? ['Loading Gaia DR3 catalog…']
+                    : []),
+                  ...(gaiaState.id === frameId && gaiaState.error
+                    ? [gaiaState.error]
+                    : []),
+                ]}
                 brightness={brightness}
                 onBrightness={setBrightness}
                 contrast={contrast}
@@ -1014,6 +1070,7 @@ export default function Explorer() {
               <div className="viewer-mode-content">
                 {view === 'science' ? (
                   <ScienceWorkspace
+                    key={`${target?.raDeg}:${target?.decDeg}:${target?.fovArcmin}:${scienceSource?.referenceId}:${scienceSource?.x}:${scienceSource?.y}`}
                     target={target}
                     frames={allFrames}
                     source={scienceSource}
@@ -1058,6 +1115,7 @@ export default function Explorer() {
                   />
                 ) : (
                   <SkyViewer
+                    onFrameReady={setReadyFrameId}
                     frame={frame}
                     track={track}
                     differenceUrl={diff?.imageUrl}
