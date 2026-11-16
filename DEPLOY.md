@@ -34,4 +34,4 @@ Open `http://localhost:8000` and `http://localhost:8000/health`. Test the five g
 - API requests can be expensive; this project has **no per-user authorization or rate limiting**. For an open public deployment, put network-level rate limits in front of it and monitor compute/storage use.
 - Large archive searches can take minutes. The backend currently limits downloaded frame and cache sizes, but hosting providers may impose request timeouts.
 - Not a NASA service or an officially validated discovery pipeline. The 102 wavelength channels are approximate spectral-WCS slices; centroid tracking, differences and pixel spectra are quick-look calculations.
-- This file is instructions. **A public website has not been deployed** by this ZIP.
+- The public application is hosted on Railway. [Open SKYFRAME OBSERVATORY](https://space-apps-production.up.railway.app/?epoch=30&view=explorer)

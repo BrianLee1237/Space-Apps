@@ -1,10 +1,22 @@
 # SKYFRAME OBSERVATORY
 
-The existing React frontend is connected to the SPHEREx FastAPI backend through its
-`/api` contract. FastAPI also serves the compiled frontend, so the application can
-run from one local URL.
+SKYFRAME OBSERVATORY displays real SPHEREx imagery, dated observations, and
+candidate-change analysis through a React frontend and FastAPI backend.
 
-## Start the application
+## Open the web app
+
+Use the hosted Railway application.
+
+[Open SKYFRAME OBSERVATORY](https://space-apps-production.up.railway.app/?epoch=30&view=explorer)
+
+Enter coordinates in Controls or choose a target in Guide. Public SPHEREx and
+Gaia access requires no API key. During discovery outages, the app offers saved
+observation fields and the real SPHEREx all-sky mosaic.
+
+## Local development (optional)
+
+Contributors can run the frontend and backend on their own computer. The local
+addresses below become available after starting the development server.
 
 Install Node.js and [uv](https://docs.astral.sh/uv/getting-started/installation/),
 then run these commands from the repository root.
@@ -141,8 +153,13 @@ archive checks. Run `uv run python scripts/validate_live.py --frames-per-target 
 from `backend` for all five challenge fields. Live reports are saved in the data
 folder. The browser tests use a separate temporary cache.
 
-Public-domain deployment is outside the current task. The app runs locally from
-one FastAPI URL. The team’s charcoal-and-gold interface is retained.
+The public application is hosted on Railway. Production setup and persistent
+storage instructions are available in the deployment guide. [Deployment guide](DEPLOY.md)
+
+Pushing to GitHub updates the repository. Railway publishes those changes after
+its service deploys the latest `main` commit. If the hosted interface shows an
+older version, redeploy that service from the latest `main`. The current backend
+provides `/api/availability` for discovery status and saved fields.
 
 Detailed archive information is available in the backend README and build plan.
 [Backend README](backend/README.md) · [Build plan](backend/BUILD_PLAN.md)
