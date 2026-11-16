@@ -27,6 +27,7 @@ type Props = {
   onResult: (result: ScienceResult) => void
   onSelectSource: () => void
   onNavigate: (target: SearchTarget) => void
+  canRequestSpectrum: boolean
 }
 type Tab = 'photometry' | 'images' | 'atlas' | 'review'
 function download(value: string, name: string, type: string) {
@@ -112,7 +113,12 @@ function LightCurve({
               y2={y(point.flux + point.uncertainty)}
               stroke="var(--data)"
             />
-            <circle cx={x(times[i])} cy={y(point.flux)} r="4" fill="var(--data)" />
+            <circle
+              cx={x(times[i])}
+              cy={y(point.flux)}
+              r="4"
+              fill="var(--data)"
+            />
           </g>
         ))}
         <text x="58" y="248">
@@ -121,7 +127,9 @@ function LightCurve({
         <text x="680" y="248" textAnchor="end">
           {new Date(last).toLocaleDateString(undefined, { timeZone: 'UTC' })}
         </text>
-        <text x="365" y="265" textAnchor="middle">Observation date (UTC)</text>
+        <text x="365" y="265" textAnchor="middle">
+          Observation date (UTC)
+        </text>
       </svg>
     </div>
   )
@@ -219,8 +227,9 @@ export default function ScienceWorkspace({
   onResult,
   onSelectSource,
   onNavigate,
+  canRequestSpectrum,
 }: Props) {
-  const [tab, setTab] = useState<Tab>('photometry'),
+  const [tab, setTab] = useState<Tab>(source ? 'photometry' : 'atlas'),
     [radius, setRadius] = useState(12),
     [days, setDays] = useState(30)
   const [background, setBackground] = useState<'none' | 'constant' | 'plane'>(
@@ -408,7 +417,10 @@ export default function ScienceWorkspace({
   return (
     <section className="science-workspace" aria-label="Science workspace">
       <div className="science-tabs" role="group" aria-label="Science tools">
-        {(['photometry', 'images', 'atlas', 'review'] as Tab[]).map((value) => (
+        {(frames.length
+          ? (['photometry', 'images', 'atlas', 'review'] as Tab[])
+          : (['atlas', 'review'] as Tab[])
+        ).map((value) => (
           <button
             key={value}
             aria-pressed={tab === value}
@@ -502,13 +514,17 @@ export default function ScienceWorkspace({
                 >
                   Measure light curve
                 </button>
-                <button
-                  className="secondary-button"
-                  disabled={!source || busy}
-                  onClick={() => void run('spectrum')}
-                >
-                  Extract six-detector spectrum
-                </button>
+                {canRequestSpectrum && (
+                  <>
+                    <button
+                      className="secondary-button"
+                      disabled={!source || busy}
+                      onClick={() => void run('spectrum')}
+                    >
+                      Extract six-detector spectrum
+                    </button>
+                  </>
+                )}
                 <button
                   className="secondary-button"
                   disabled={!source || busy}

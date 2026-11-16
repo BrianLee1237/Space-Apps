@@ -35,6 +35,13 @@ export type ObservationsResponse = {
   warnings?: string[]
   initialObservationId?: string | null
   stale?: boolean
+  fallback?: 'atlas'
+  discoveryAvailable?: boolean
+}
+export type Availability = {
+  discoveryAvailable: boolean
+  checkedAt: string
+  savedFields: Array<SearchTarget & { detectors: number[] }>
 }
 export type ResolvedTarget = { raDeg: number; decDeg: number; name?: string }
 export type ImageLocation = { xFraction: number; yFraction: number }

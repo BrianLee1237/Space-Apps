@@ -1,4 +1,5 @@
 import io
+import threading
 import time
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -10,6 +11,7 @@ from .config import Settings
 from .imaging import full_sha256, inspect_fits
 from .models import SearchRequest
 from .storage import Store, canonical, digest
+from .targets import TARGETS
 
 METADATA_SCHEMA_VERSION = 1
 
@@ -24,6 +26,68 @@ class SkyService:
         )
         self._search_unavailable_until = 0
         self._search_error = "IRSA discovery is temporarily unavailable"
+        self._availability_lock = threading.Lock()
+        self._availability = None
+        self._availability_until = 0
+
+    def availability(self):
+        with self._availability_lock:
+            if self._availability and time.monotonic() < self._availability_until:
+                return self._availability
+            available = self.archive.discovery_available()
+            self._availability = {
+                "discoveryAvailable": available,
+                "checkedAt": datetime.now(UTC).isoformat(),
+                "savedFields": self.saved_fields(),
+            }
+            self._availability_until = time.monotonic() + 60
+            if available:
+                self._search_unavailable_until = 0
+            else:
+                self._search_unavailable_until = time.monotonic() + 60
+            return self._availability
+
+    def saved_fields(self):
+        fields = {}
+        defaults = SearchRequest(ra=0, dec=0)
+        for pointer in (self.store.root / "queries").glob("*.json"):
+            try:
+                manifest = self.store.cached_search(pointer.stem, allow_stale=True)
+                if not manifest or not manifest["frames"] or not manifest["complete"]:
+                    continue
+                query = SearchRequest.model_validate(manifest["query"])
+                if query.coverage != "center" or query.collections != defaults.collections:
+                    continue
+                if query.mjd_min is not None or query.mjd_max is not None:
+                    continue
+                if query.max_records != defaults.max_records:
+                    continue
+                key = (round(query.ra, 8), round(query.dec, 8))
+                if key not in fields:
+                    name = next(
+                        (
+                            target["name"]
+                            for target in TARGETS
+                            if round(target["ra"], 8) == key[0]
+                            and round(target["dec"], 8) == key[1]
+                        ),
+                        f"RA {query.ra:.5f}, Dec {query.dec:.5f}",
+                    )
+                    fields[key] = {
+                        "name": name,
+                        "raDeg": query.ra,
+                        "decDeg": query.dec,
+                        "fovArcmin": query.fov_arcmin,
+                        "detectors": set(),
+                    }
+                fields[key]["detectors"].update(frame["detector"] for frame in manifest["frames"])
+            except (KeyError, ValueError, TypeError):
+                continue
+        return [
+            {**field, "detectors": sorted(field["detectors"])}
+            for field in sorted(fields.values(), key=lambda item: item["name"])
+            if 6 in field["detectors"]
+        ]
 
     @staticmethod
     def query_key(request):
@@ -100,6 +164,7 @@ class SkyService:
                 frames, overflow, upstream_count, params = self.archive.search(request)
                 self._search_unavailable_until = 0
             except ArchiveError as exc:
+                self._availability_until = 0
                 self._search_error = str(exc)
                 self._search_unavailable_until = time.monotonic() + 30
                 if cached:
@@ -109,9 +174,10 @@ class SkyService:
                         "stale": True,
                         "warnings": [
                             *cached["warnings"],
-                            f"Live IRSA discovery failed ({exc}). Using the saved search from "
+                            "Live dated-image discovery is unavailable. "
+                            "Using the saved search from "
                             f"{cached['created_at_utc']}. New observations may be absent. "
-                            "Use Refresh archive to retry.",
+                            "Search again when live discovery is available.",
                         ],
                     }
                 raise ArchiveError(

@@ -118,6 +118,20 @@ class ArchiveClient:
             headers={"User-Agent": "SPHERExSkyAPI/0.1 (public-data prototype)"},
         )
 
+    def discovery_available(self):
+        """Check the actual SIA service with a small, bounded public query."""
+        try:
+            response = self.client.get(
+                SIA_URL,
+                params={"COLLECTION": "spherex_dr1", "POS": "CIRCLE 0 0 0.00027778", "MAXREC": "1"},
+                timeout=httpx.Timeout(min(self.settings.timeout_seconds, 5), connect=3),
+            )
+            response.raise_for_status()
+            parse_sia(response.content)
+            return True
+        except (httpx.HTTPError, ArchiveError):
+            return False
+
     def fetch(self, url, params=None) -> bytes:
         # A real cutout download legitimately takes several seconds; a 1-second
         # wait here made any workload that queues more than archive_concurrency

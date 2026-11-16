@@ -1,4 +1,5 @@
 import type {
+  Availability,
   BandSelection,
   CombineResponse,
   DiscoveryResponse,
@@ -16,6 +17,15 @@ import type {
 
 /** Vite proxies /api to FastAPI on 127.0.0.1:8000. Production: set VITE_API_BASE_URL. */
 const BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
+export async function getAvailability(signal?: AbortSignal) {
+  const value = await request<Availability>('/availability', signal)
+  if (
+    typeof value.discoveryAvailable !== 'boolean' ||
+    !Array.isArray(value.savedFields)
+  )
+    throw new ApiError('Invalid availability response.')
+  return value
+}
 export class ApiError extends Error {
   status?: number
   constructor(message: string, status?: number) {

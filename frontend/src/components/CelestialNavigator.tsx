@@ -267,7 +267,7 @@ export default function CelestialNavigator({ selectedRa, selectedDec, fovArcmin,
     <div className="celestial-bottom-left"><div className="celestial-hint"><Move size={15}/>Drag to rotate <span>·</span> Click to select</div></div>
     <div className="celestial-bottom-right">
       {hasSelection&&<><span className="system-caption">Selected coordinates</span><strong>RA {selectedRa.toFixed(4)}° <span>/</span> Dec {selectedDec.toFixed(4)}°</strong><small>Field of view · {fovArcmin} arcmin</small>
-        <button type="button" className="nav-load-button" onClick={onSearch} disabled={loading}><Crosshair size={16}/>{loading ? 'Loading…' : 'Load observations'}</button>
+        <button type="button" className="nav-load-button" onClick={onSearch} disabled={loading}><Crosshair size={16}/>{loading ? 'Loading…' : 'Open sky field'}</button>
       </>}
     </div>
   </section>

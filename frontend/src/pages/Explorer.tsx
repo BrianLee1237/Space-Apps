@@ -13,6 +13,7 @@ import { runAnalysis } from '../services/science'
 import Inspector from '../components/Inspector'
 import {
   imageURL,
+  getAvailability,
   getObservationMetadata,
   getGaiaOverlay,
   getObservations,
@@ -39,6 +40,7 @@ import type {
   ScienceParameters,
   ScienceResult,
   AnalysisJob,
+  Availability,
 } from '../types/astronomy'
 
 type LoadStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
@@ -125,6 +127,21 @@ export default function Explorer() {
   const mainJobAbort = useRef<AbortController | null>(null),
     mainJobKind = useRef('')
   const [searchWarnings, setSearchWarnings] = useState<string[]>([])
+  const [availability, setAvailability] = useState<Availability | null>(null)
+  useEffect(() => {
+    const controller = new AbortController()
+    const check = () => {
+      void getAvailability(controller.signal)
+        .then(setAvailability)
+        .catch(() => {})
+    }
+    check()
+    const timer = window.setInterval(check, 60000)
+    return () => {
+      controller.abort()
+      window.clearInterval(timer)
+    }
+  }, [])
   const [playing, setPlaying] = useState(false),
     [speed, setSpeed] = useState(700)
   const [brightness, setBrightness] = useState(100),
@@ -343,6 +360,13 @@ export default function Explorer() {
     nextBand: BandSelection = band,
     refresh = false,
   ) {
+    if (
+      availability?.discoveryAvailable === false &&
+      nextBand.mode !== 'auto'
+    ) {
+      nextBand = { mode: 'auto' }
+      setBand(nextBand)
+    }
     const restoreParameters = restored.current
     restored.current = new URLSearchParams()
     abort.current?.abort()
@@ -420,6 +444,18 @@ export default function Explorer() {
     try {
       const data = await getObservations(next, nextBand, ctrl.signal, refresh)
       if (ctrl.signal.aborted || seq.current !== requestId) return
+      if (data.fallback === 'atlas') {
+        setAvailability((old) => ({
+          discoveryAvailable: false,
+          checkedAt: new Date().toISOString(),
+          savedFields: old?.savedFields ?? [],
+        }))
+        setFrames([])
+        setStatus('empty')
+        setSearchWarnings(data.warnings ?? [])
+        setView('science')
+        return
+      }
       const findRestored = (key: string, fallback: number) => {
         const id = restoreParameters.get(key)
         const found = id
@@ -915,8 +951,10 @@ export default function Explorer() {
     <div className="app-shell">
       <Navbar
         view={view}
+        hasObservations={frames.length > 0}
         onView={(next) => {
-          if (next === 'shift-stack') setPlaying(false)
+          if (next === 'shift-stack' || next === 'science') setPlaying(false)
+          if (next === 'explorer' && !frames.length) setViewerMode('globe')
           setView(next)
         }}
         settingsOpen={view !== 'shift-stack' && settingsOpen}
@@ -939,46 +977,99 @@ export default function Explorer() {
             >
               Coordinates
             </button>
-            <label>
-              Time spacing{' '}
-              <select
-                aria-label="Minimum epoch separation"
-                value={epochDays}
-                onChange={(e) => setEpochDays(Number(e.target.value))}
-              >
-                <option value={0}>All exposures</option>
-                <option value={1}>At least 1 day</option>
-                <option value={30}>At least 30 days</option>
-                <option value={180}>At least 180 days</option>
-              </select>
-            </label>
-            <button
-              disabled={frames.length < 2 || discoveryBusy}
-              onClick={() => {
-                setView('discover')
-                void scan()
-              }}
-            >
-              {discoveryBusy ? 'Checking…' : 'Find changes'}
-            </button>
-            <button
-              disabled={!target || status === 'loading'}
-              onClick={() => {
-                if (target) void loadObservations(target, band, true)
-              }}
-            >
-              Refresh archive
-            </button>
+            {frames.length >= 2 && (
+              <>
+                <label>
+                  Time spacing{' '}
+                  <select
+                    aria-label="Minimum epoch separation"
+                    value={epochDays}
+                    onChange={(event) =>
+                      setEpochDays(Number(event.target.value))
+                    }
+                  >
+                    <option value={0}>All exposures</option>
+                    <option value={1}>At least 1 day</option>
+                    <option value={30}>At least 30 days</option>
+                    <option value={180}>At least 180 days</option>
+                  </select>
+                </label>
+                <button
+                  disabled={discoveryBusy}
+                  title="Compare wavelength-matched epochs and mark provisional motion or brightness changes"
+                  onClick={() => {
+                    setView('discover')
+                    void scan()
+                  }}
+                >
+                  {discoveryBusy
+                    ? 'Highlighting...'
+                    : 'Highlight candidate changes'}
+                </button>
+              </>
+            )}
+            {availability?.discoveryAvailable === true &&
+              target &&
+              frames.length > 0 && (
+                <button
+                  disabled={status === 'loading'}
+                  onClick={() => {
+                    void loadObservations(target, band, true)
+                  }}
+                >
+                  Refresh archive
+                </button>
+              )}
             <span className="toolbar-status" role="status">
               {status === 'loading'
-                ? 'Loading observations…'
+                ? 'Loading observations...'
                 : status === 'error'
                   ? 'Search failed'
                   : allFrames.length
                     ? `${playbackFrames.length} playback epochs / ${allFrames.length} exposures`
-                    : 'No observations loaded'}
+                    : view === 'science'
+                      ? 'All-sky mosaic'
+                      : 'No observations loaded'}
             </span>
           </div>
+          {availability?.discoveryAvailable === false && (
+            <div className="archive-availability" role="status">
+              <span>
+                Live dated-image discovery is unavailable. Explore the all-sky
+                mosaic or open a saved observation field.
+              </span>
+              {availability.savedFields.length > 0 && (
+                <label>
+                  Saved observation fields{' '}
+                  <select
+                    aria-label="Saved observation fields"
+                    value=""
+                    onChange={(event) => {
+                      const field =
+                        availability.savedFields[Number(event.target.value)]
+                      if (field) {
+                        setBand({ mode: 'auto' })
+                        setRa(String(field.raDeg))
+                        setDec(String(field.decDeg))
+                        setFov(field.fovArcmin)
+                        setView('explorer')
+                        void loadObservations(field, { mode: 'auto' })
+                      }
+                    }}
+                  >
+                    <option value="" disabled>
+                      Choose a field
+                    </option>
+                    {availability.savedFields.map((field, i) => (
+                      <option key={`${field.raDeg}:${field.decDeg}`} value={i}>
+                        {field.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+          )}
           {mainJob && (
             <div className="analysis-progress" role="status">
               <span>
@@ -990,7 +1081,7 @@ export default function Explorer() {
             </div>
           )}
           <div
-            className={`workspace ${settingsOpen ? 'workspace-with-settings' : 'workspace-no-settings'}`}
+            className={`workspace ${settingsOpen ? 'workspace-with-settings' : 'workspace-no-settings'} ${frames.length && view !== 'science' ? '' : 'workspace-atlas-only'}`}
           >
             {settingsOpen && (
               <Sidebar
@@ -1004,7 +1095,10 @@ export default function Explorer() {
                 onBand={updateBand}
                 gaia={gaiaEnabled}
                 onGaia={setGaiaEnabled}
-                hasFrames={!!frame}
+                hasFrames={
+                  !!frame && view !== 'science' && viewerMode === 'observations'
+                }
+                liveDiscovery={availability?.discoveryAvailable === true}
                 gaiaWarnings={[
                   ...(gaia?.warnings ?? []),
                   ...(gaiaState.id === frameId && gaiaState.loading
@@ -1039,40 +1133,49 @@ export default function Explorer() {
                       : target?.name || 'SPHEREx observations'}
                   </strong>
                   <small>
-                    {viewerMode === 'globe'
-                      ? 'Click the globe to select coordinates'
-                      : 'SPHEREx image viewer'}
+                    {view === 'science'
+                      ? 'Source measurements and infrared sky navigation'
+                      : viewerMode === 'globe'
+                        ? 'Click the globe to select coordinates'
+                        : 'SPHEREx image viewer'}
                   </small>
                 </div>
-                <div
-                  className="viewer-mode-buttons"
-                  role="group"
-                  aria-label="Viewer mode"
-                >
-                  <button
-                    aria-pressed={viewerMode === 'globe'}
-                    className={viewerMode === 'globe' ? 'mode-active' : ''}
-                    onClick={() => setViewerMode('globe')}
-                  >
-                    Navigator
-                  </button>
-                  <button
-                    aria-pressed={viewerMode === 'observations'}
-                    className={
-                      viewerMode === 'observations' ? 'mode-active' : ''
-                    }
-                    onClick={() => setViewerMode('observations')}
-                  >
-                    Observations
-                  </button>
-                </div>
+                {view !== 'science' && (
+                  <>
+                    <div
+                      className="viewer-mode-buttons"
+                      role="group"
+                      aria-label="Viewer mode"
+                    >
+                      <button
+                        aria-pressed={viewerMode === 'globe'}
+                        className={viewerMode === 'globe' ? 'mode-active' : ''}
+                        onClick={() => setViewerMode('globe')}
+                      >
+                        Navigator
+                      </button>
+                      <button
+                        aria-pressed={viewerMode === 'observations'}
+                        className={
+                          viewerMode === 'observations' ? 'mode-active' : ''
+                        }
+                        onClick={() => setViewerMode('observations')}
+                      >
+                        Observations
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
               <div className="viewer-mode-content">
                 {view === 'science' ? (
                   <ScienceWorkspace
-                    key={`${target?.raDeg}:${target?.decDeg}:${target?.fovArcmin}:${scienceSource?.referenceId}:${scienceSource?.x}:${scienceSource?.y}`}
+                    key={`${target?.raDeg}:${target?.decDeg}:${target?.fovArcmin}:${scienceSource?.referenceId}:${scienceSource?.x}:${scienceSource?.y}:${frames.length ? 'epochs' : 'atlas'}`}
                     target={target}
                     frames={allFrames}
+                    canRequestSpectrum={
+                      availability?.discoveryAvailable === true
+                    }
                     source={scienceSource}
                     onResult={setLatestAnalysis}
                     onSelectSource={() => {
@@ -1202,21 +1305,26 @@ export default function Explorer() {
               onGoNotebook={() => setView('notebook')}
               searchWarnings={searchWarnings}
             />
-            <Timeline
-              frames={timelineFrames}
-              index={Math.max(0, timelineIndex)}
-              onIndex={(i) =>
-                changeIndex(
-                  frames.findIndex(
-                    (observation) => observation.id === timelineFrames[i].id,
-                  ),
-                )
-              }
-              playing={playing}
-              onPlaying={updatePlaying}
-              speed={speed}
-              onSpeed={setSpeed}
-            />
+            {frames.length > 0 && view !== 'science' && (
+              <>
+                <Timeline
+                  frames={timelineFrames}
+                  index={Math.max(0, timelineIndex)}
+                  onIndex={(i) =>
+                    changeIndex(
+                      frames.findIndex(
+                        (observation) =>
+                          observation.id === timelineFrames[i].id,
+                      ),
+                    )
+                  }
+                  playing={playing}
+                  onPlaying={updatePlaying}
+                  speed={speed}
+                  onSpeed={setSpeed}
+                />
+              </>
+            )}
           </div>
         </>
       )}

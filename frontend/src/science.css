@@ -367,3 +367,16 @@
 }
 
 .image-loading-state { position: absolute; inset: 48% auto auto 50%; transform: translateX(-50%); padding: 10px 14px; background: var(--surface, #10171e); color: var(--text, #e4edf4); border: 1px solid var(--border, #35404b); border-radius: 6px; pointer-events: none; }
+
+.archive-availability { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; padding: 10px 16px; border-inline: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 12px; }
+.archive-availability label { display: flex; align-items: center; gap: 8px; }
+.archive-availability select { max-width: 260px; padding: 6px; background: var(--base); color: var(--text); border: 1px solid var(--line); border-radius: 5px; }
+.workspace-atlas-only { grid-template-rows: minmax(0, 1fr); }
+.workspace-atlas-only .sidebar { grid-row: 1; }
+@media (max-width: 690px) {
+  .archive-availability { font-size: 11px; padding: 10px; }
+  .archive-availability label { flex-wrap: wrap; }
+  .archive-availability select { max-width: 100%; }
+  .workspace-atlas-only { grid-template-rows: minmax(420px, 70svh) auto; }
+  .workspace-atlas-only .inspector { grid-row: 2; }
+}

@@ -53,7 +53,7 @@ export default function SkyAtlas({
         channel,
         ra: target?.raDeg ?? 0,
         dec: target?.decDeg ?? 0,
-        fov: Math.max(0.2, (target?.fovArcmin ?? 60) / 60),
+        fov: Math.max(1 / 120, (target?.fovArcmin ?? 60) / 60),
       },
       location.origin,
     )
@@ -72,20 +72,21 @@ export default function SkyAtlas({
               setChannel(Number(event.target.value))
             }}
           >
-            {channels.map((row) => (
-              <option key={row.index} value={row.index}>
-                {row.index} · {row.WAVELENGTH.toFixed(3)} µm · D{row.detector}
-              </option>
-            ))}
+            {channels
+              .filter((row) => row.index !== 51 && row.index !== 52)
+              .map((row) => (
+                <option key={row.index} value={row.index}>
+                  {row.index} · {row.WAVELENGTH.toFixed(3)} µm · D{row.detector}
+                </option>
+              ))}
           </select>
         </label>
         <span>{ready ? 'SPHEREx DR1 mosaic' : 'Loading IRSA mosaic…'}</span>
       </div>
-      {(channel === 51 || channel === 52) && (
-        <p className="quality-warning">
-          IRSA marks this dichroic layer as blank in the all-sky visualization.
-        </p>
-      )}
+      <p className="control-hint">
+        The mosaic provides 100 layers. Dichroic channels 51 and 52 have no
+        published mosaic images.
+      </p>
       {error && (
         <p className="inline-warning" role="alert">
           {error}
@@ -103,7 +104,7 @@ export default function SkyAtlas({
               channel,
               ra: target?.raDeg ?? 0,
               dec: target?.decDeg ?? 0,
-              fov: Math.max(0.2, (target?.fovArcmin ?? 60) / 60),
+              fov: Math.max(1 / 120, (target?.fovArcmin ?? 60) / 60),
             },
             location.origin,
           )

@@ -36,7 +36,7 @@ the frontend's origin.
   102 calibrated channel windows.
 - Play dated exposures, choose minimum epoch spacing, and find wavelength-matched
   comparisons. Analysis uses the full search independently of playback thinning.
-- Use Find changes for provisional residual rings, arrows, and explanatory
+- Use Highlight candidate changes for provisional residual rings, arrows, and explanatory
   captions tied to the actual supporting epochs.
 - Click a visible source, then open Science. Measure native-pixel aperture light
   curves with statistical errors, inspect wavelength-by-time coverage, or request
@@ -68,7 +68,8 @@ No API key is required for these services.
 During IRSA discovery outages, previously saved searches remain usable and show
 an explicit stale-data warning. Equivalent coordinate formatting shares a search.
 Field-size changes can reuse discovery metadata at the same center and download
-new native cutouts. A new uncached sky position still requires IRSA discovery.
+new native cutouts. When dated images cannot be queried, coordinate searches open the real SPHEREx
+all-sky mosaic. Saved observation fields support playback and candidate highlighting.
 Search retries have a 25-second total budget and respect Retry-After. Repeated
 failures defer uncached batch downloads while allowing cached inputs to proceed.
 
@@ -177,3 +178,17 @@ nearby wavelengths and is intended for visualization.
 To regenerate the images, run `uv run python scripts/build_comet_demo.py`
 from `backend`. From `frontend`, run `node --test tests/motionStack.test.mjs`
 with Node 24 to check the real comet recovery and the practice scan.
+
+
+## Available actions during discovery outages
+
+The app checks live discovery availability once per minute. During an outage it
+hides live refresh, live detector/channel filtering, and deeper six-detector
+queries. A saved-field selector opens dated data that are already available.
+Uncached coordinates open Sky atlas with a clear combined-time mosaic label.
+Temporal-analysis controls appear when dated exposures are loaded.
+
+The toolbar and discovery panel use **Highlight candidate changes**. This action
+compares matched epochs and annotates provisional motion or brightness residuals.
+The atlas selector offers its 100 published layers. Blank dichroic mosaic channels
+51 and 52 are excluded. Native spectral calibration retains all 102 channels.

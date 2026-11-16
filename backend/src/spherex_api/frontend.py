@@ -94,6 +94,10 @@ def resolve_difference_pair(sky, from_id, to_id):
 def frontend_router(sky, gaia):
     router = APIRouter(prefix="/api", tags=["Frontend"])
 
+    @router.get("/availability")
+    def availability():
+        return sky.availability()
+
     @router.get("/resolve")
     def resolve(name: Annotated[str, Query(min_length=1, max_length=128)]):
         normalized = name.strip().casefold().replace("\u2019", "'")
@@ -138,7 +142,19 @@ def frontend_router(sky, gaia):
         channel = CHANNELS[index - 1] if mode == "channel" else None
         detector = channel["detector"] if channel else index if mode == "detector" else 6
         query = SearchRequest(ra=ra, dec=dec, fov_arcmin=fov, detectors=(detector,))
-        manifest = sky.search(query, refresh=refresh)
+        try:
+            manifest = sky.search(query, refresh=refresh)
+        except ArchiveError:
+            return {
+                "target": {"raDeg": ra, "decDeg": dec, "fovArcmin": fov},
+                "observations": [],
+                "fallback": "atlas",
+                "discoveryAvailable": False,
+                "warnings": [
+                    "Dated observations are unavailable for these coordinates during the live "
+                    "discovery outage. The SPHEREx all-sky mosaic is available for navigation."
+                ],
+            }
         if not manifest["complete"]:
             raise HTTPException(
                 422, "The archive truncated this search. Use /v1/search with a narrower time range."

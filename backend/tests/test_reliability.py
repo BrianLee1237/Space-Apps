@@ -302,3 +302,43 @@ def test_science_jobs_defer_downloads_after_repeated_failures(tmp_path):
         assert job["result"]["inspected"] == 1
         assert len(failures) == 3
         assert any("Deferred 6" in warning for warning in job["result"]["warnings"])
+
+
+def test_unseen_sky_coordinates_open_atlas_when_discovery_is_down(tmp_path):
+    settings = Settings(data_dir=tmp_path, retries=0)
+    archive = ArchiveClient(settings, httpx.MockTransport(lambda request: httpx.Response(502)))
+    service = SkyService(settings, archive)
+    with TestClient(create_app(settings, service=service)) as client:
+        result = client.get("/api/observations", params={"ra": 17, "dec": 6})
+        assert result.status_code == 200
+        assert result.json()["fallback"] == "atlas"
+        assert result.json()["observations"] == []
+        assert result.json()["discoveryAvailable"] is False
+        status = client.get("/api/availability").json()
+        assert status["discoveryAvailable"] is False and status["savedFields"] == []
+        # Scientific API callers still receive an explicit upstream error.
+        assert client.get("/v1/search", params={"ra": 17, "dec": 6}).status_code == 502
+
+
+def test_availability_exposes_saved_fields_and_recovers_after_a_probe(tmp_path):
+    online = True
+    calls = []
+
+    def upstream(request):
+        calls.append(request.url.path)
+        return httpx.Response(200, content=sia_bytes()) if online else httpx.Response(502)
+
+    settings = Settings(data_dir=tmp_path, retries=0)
+    service = SkyService(settings, ArchiveClient(settings, httpx.MockTransport(upstream)))
+    service.search(SearchRequest(ra=133.7, dec=-7.2, detectors=(6,)))
+    online = False
+    status = service.availability()
+    assert status["discoveryAvailable"] is False
+    assert len(status["savedFields"]) == 1
+    assert status["savedFields"][0]["raDeg"] == 133.7
+    assert status["savedFields"][0]["detectors"] == [6]
+    assert service.availability() == status and len(calls) == 2
+    online = True
+    service._availability_until = 0
+    assert service.availability()["discoveryAvailable"] is True
+    assert service._search_unavailable_until == 0

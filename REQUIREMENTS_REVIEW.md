@@ -33,7 +33,7 @@ same-detector, same-channel comparison data.
 | Weighted stacks | Same-channel inverse-variance stacks, robust background correction, 5-sigma pixel rejection with at least three inputs, and half-input coverage threshold |
 | Advanced subtraction | Reference-star offsets, empirical PSF cross-convolution when at least three usable stars exist per epoch, robust scaling, constant/planar background, variance propagation, and significance preview |
 | Motion analysis | Weighted tangent-plane fit, centroid errors and assumed 0.5-arcsec floor, reference-star correction where supported, selectable east/north motion-compensated stacking |
-| 102-channel atlas | On-demand Aladin Lite view of the real IRSA DR1 all-sky HiPS cube. Channels 51/52 are labeled blank dichroic layers. Click a sky position to load dated observations |
+| 102-channel atlas | On-demand Aladin Lite view of the real IRSA DR1 all-sky HiPS cube. The 100 published mosaic layers are selectable. Blank dichroic channels 51/52 are excluded. Click a sky position to load dated observations |
 | Gaia DR3 | Brightness-limited overlay and nearby counterpart query, Harvard VizieR/ESA/ARI failover and persistent, shared 15-minute cache. Linear proper motion excludes parallax and radial velocity |
 | Updated data | Configurable collections and Refresh archive control create new search snapshots |
 | Work management | Two-worker analysis queue, bounded admission, progress, subscriber-aware cancellation and deduplication |
@@ -103,8 +103,8 @@ reference-star offsets, empirical PSFs, job cancellation/deduplication, evidence
 persistence, cache protection, and API validation. Browser checks exercise full
 search selection independently of playback, source selection, mobile layout,
 live charts/exports, saved evidence reload, and atlas navigation.
-The final local checks passed 57 backend tests, three scientific motion-stack
-tests, and five browser regression tests, with clean backend/frontend lint and a
+The final local checks passed 59 backend tests, three scientific motion-stack
+tests, and seven browser regression tests, with clean backend/frontend lint and a
 successful production build. A PDF parser verified its embedded evidence JSON.
 The live atlas check confirmed exact channel-100 tiles and no browser runtime
 errors after explicit channel-to-tile mapping replaced frequency interpolation.
@@ -134,8 +134,8 @@ persistent cone cache. The query records its provider and retrieval time.
 IRSA FITS cutouts remained reachable during the metadata-service failure. A
 live WISE-field request returned HTTP 200 and a valid multi-extension FITS image.
 Saved discovery snapshots support existing fields and new field sizes at the
-same center. Their original retrieval dates remain intact. Newly uncached sky
-positions remain dependent on the external discovery service.
+same center. Their original retrieval dates remain intact. Uncached sky positions open the real all-sky mosaic when dated-image discovery
+is unavailable. Temporal analysis requires actual dated exposures.
 
 Regression tests cover concurrent/persistent Gaia caching, labeled stale catalogs,
 stale search recovery, equivalent coordinate serialization, field-size cutout
@@ -143,3 +143,23 @@ regeneration, initial-cutout fallback, corrupted-cache repair, invalid upstream
 FITS responses, Retry-After, bounded discovery retries, cancellation CORS, and
 batch-download deferral. Browser tests cover catalog failure/recovery without
 hiding the image, exposure-load-aware playback, and automatic image retry.
+
+
+## Discovery-outage interface
+
+The external IRSA SIA service, its capability endpoint, and TAP availability
+endpoint continue to return 502 directly. The interface removes live-only actions
+while the service is unavailable. It offers saved observation fields and switches
+uncached coordinate searches to the actual SPHEREx all-sky mosaic. The API marks
+this response with `fallback=atlas`, empty dated observations, and an explicit
+availability flag. Scientific `/v1/search` clients receive the upstream error.
+
+The button now reads **Highlight candidate changes** in both locations and has a
+tooltip describing matched-epoch comparison. Empty temporal tools and controls
+that do not apply to the displayed view are hidden. Source analysis uses real
+loaded epochs. Atlas field size follows the requested field size, and its blank
+dichroic layers are omitted from the selector.
+
+Live browser verification loaded mosaic tiles at new coordinates, opened a saved
+field, displayed 43 Gaia markers, and completed candidate highlighting with 12
+provisional results. Browser checks recorded no runtime errors or mobile overflow.

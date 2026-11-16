@@ -236,3 +236,142 @@ test('transient image failures retry the same exposure', async ({ page }) => {
     page.getByText('Unable to display image', { exact: true }),
   ).toHaveCount(0)
 })
+
+test('unavailable live actions are removed and unknown fields open the sky atlas', async ({
+  page,
+}) => {
+  await page.route('**/atlas.html', (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<html><body>Atlas test fixture<script>parent.postMessage({type:"atlas-ready"},location.origin)</script></body></html>',
+    }),
+  )
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === '/api/availability')
+      await route.fulfill({
+        json: {
+          discoveryAvailable: false,
+          checkedAt: '2026-11-15T00:00:00Z',
+          savedFields: [
+            {
+              name: 'Saved field',
+              raDeg: 133.7,
+              decDeg: -7.2,
+              fovArcmin: 10,
+              detectors: [6],
+            },
+          ],
+        },
+      })
+    else if (url.pathname === '/api/observations')
+      await route.fulfill({
+        json:
+          url.searchParams.get('ra') === '133.7'
+            ? { observations: frames }
+            : {
+                observations: [],
+                fallback: 'atlas',
+                discoveryAvailable: false,
+                warnings: ['Dated observations unavailable'],
+              },
+      })
+    else if (url.pathname.startsWith('/api/images/'))
+      await route.fulfill({ contentType: 'image/png', body: png })
+    else if (url.pathname === '/api/science/channels')
+      await route.fulfill({
+        json: { channels: [{ index: 86, detector: 6, WAVELENGTH: 4.435 }] },
+      })
+    else await route.fulfill({ json: { samples: [], fluxUnit: 'MJy/sr' } })
+  })
+  await page.goto('/?ra=17&dec=6&fov=10')
+  await expect(page.getByTitle('Real SPHEREx infrared sky atlas')).toBeVisible()
+  await expect(
+    page.getByText('Live dated-image discovery is unavailable.', {
+      exact: false,
+    }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Refresh archive', exact: true }),
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole('button', {
+      name: 'Highlight candidate changes',
+      exact: true,
+    }),
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole('button', { name: 'Image processing', exact: true }),
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole('radio', { name: 'Detector (1–6)', exact: true }),
+  ).toHaveCount(0)
+  await page.getByLabel('Saved observation fields').selectOption('0')
+  await expect(page.locator('.sky-image')).toBeVisible()
+  await expect(
+    page.getByRole('button', {
+      name: 'Highlight candidate changes',
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Refresh archive', exact: true }),
+  ).toHaveCount(0)
+  await page.getByRole('button', { name: 'Science', exact: true }).click()
+  await expect(
+    page.getByRole('button', {
+      name: 'Extract six-detector spectrum',
+      exact: true,
+    }),
+  ).toHaveCount(0)
+  await page.getByRole('button', { name: 'Light curves', exact: true }).click()
+  await expect(
+    page.getByRole('button', { name: 'Measure light curve', exact: true }),
+  ).toBeVisible()
+})
+
+test('highlight candidate changes explicitly starts the comparison analysis', async ({
+  page,
+}) => {
+  let requested = ''
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === '/api/availability')
+      await route.fulfill({
+        json: {
+          discoveryAvailable: true,
+          checkedAt: '2026-11-15T00:00:00Z',
+          savedFields: [],
+        },
+      })
+    else if (url.pathname === '/api/observations')
+      await route.fulfill({ json: { observations: frames } })
+    else if (url.pathname.startsWith('/api/images/'))
+      await route.fulfill({ contentType: 'image/png', body: png })
+    else if (url.pathname === '/api/science/jobs') {
+      requested = route.request().postDataJSON().kind
+      await route.fulfill({
+        json: {
+          id: 'comparison',
+          subscription: 'test',
+          state: 'complete',
+          result: {
+            candidates: [],
+            warnings: [],
+            method: 'Comparison fixture',
+            provenance: {},
+          },
+          error: null,
+        },
+      })
+    } else await route.fulfill({ json: {} })
+  })
+  await page.goto('/?ra=133.7&dec=-7.2&fov=10')
+  await page
+    .getByRole('button', { name: 'Highlight candidate changes', exact: true })
+    .click()
+  await expect(
+    page.getByText('No candidates returned.', { exact: true }),
+  ).toBeVisible()
+  expect(requested).toBe('discover')
+})

@@ -196,23 +196,34 @@ export default function Inspector({
       )}
       {view === 'science' && (
         <section className="science-shortcuts">
-          <strong>Explore the selected source</strong>
-          <p>
-            Light curves use native aperture photometry and variance-derived
-            errors. Image processing compares compatible wavelength channels.
-          </p>
-          <p>
-            Select a source in Explorer, then open Science. The atlas provides
-            real infrared sky navigation. Evidence can be saved, downloaded, and
-            reviewed locally.
-          </p>
-          <a
-            href="https://irsa.ipac.caltech.edu/onlinehelp/spherex/spherex/sp.html"
-            target="_blank"
-            rel="noreferrer"
-          >
-            IRSA forced-photometry documentation
-          </a>
+          {frames.length ? (
+            <>
+              <strong>Explore the selected source</strong>
+              <p>
+                Light curves use native aperture photometry and variance-derived
+                errors. Image processing compares compatible wavelength
+                channels.
+              </p>
+              <p>
+                Select a source in Explorer, then open Science. The atlas
+                provides real infrared sky navigation. Evidence can be saved,
+                downloaded, and reviewed locally.
+              </p>
+              <a
+                href="https://irsa.ipac.caltech.edu/onlinehelp/spherex/spherex/sp.html"
+                target="_blank"
+                rel="noreferrer"
+              >
+                IRSA forced-photometry documentation
+              </a>
+            </>
+          ) : (
+            <p>
+              Explore real SPHEREx imagery in 102 infrared channels. The all-sky
+              mosaic combines observation dates. Open a saved observation field
+              to compare epochs and highlight candidate changes.
+            </p>
+          )}
         </section>
       )}
       {view === 'guide' && (
@@ -487,7 +498,7 @@ export default function Inspector({
             disabled={frames.length < 2 || discoveryBusy}
           >
             <Radar size={16} />
-            {discoveryBusy ? 'Scanning…' : 'Find candidate changes'}
+            {discoveryBusy ? 'Highlighting…' : 'Highlight candidate changes'}
           </button>
           {frames.length < 2 && (
             <p className="empty-text">

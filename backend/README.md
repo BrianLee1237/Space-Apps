@@ -281,3 +281,11 @@ Cached FITS checksums are verified and damaged products are re-downloaded.
 Outages at all live discovery services can still prevent an uncached sky query.
 These failures remain visible with retry instructions. The health endpoint
 checks the local process and does not assert upstream archive availability.
+
+
+`GET /api/availability` returns a short-lived live-discovery probe result and
+available saved fields. The app hides live-only operations during an outage.
+When an uncached frontend coordinate search cannot reach discovery,
+`/api/observations` returns `fallback=atlas` with no dated observations. The
+frontend opens real HiPS imagery. The `/v1/search` contract continues to expose
+upstream errors for scientific callers.
