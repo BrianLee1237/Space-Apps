@@ -192,3 +192,10 @@ The toolbar and discovery panel use **Highlight candidate changes**. This action
 compares matched epochs and annotates provisional motion or brightness residuals.
 The atlas selector offers its 100 published layers. Blank dichroic mosaic channels
 51 and 52 are excluded. Native spectral calibration retains all 102 channels.
+
+
+The five NASA challenge targets include bundled, dated IRSA discovery metadata.
+This allows a fresh installation to request their real spectral images while
+live discovery is unavailable. Images download from IRSA and retain their actual
+observation dates and quality flags. The interface displays the original
+metadata retrieval date and the live-discovery availability state.

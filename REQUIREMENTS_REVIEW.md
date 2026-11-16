@@ -103,7 +103,7 @@ reference-star offsets, empirical PSFs, job cancellation/deduplication, evidence
 persistence, cache protection, and API validation. Browser checks exercise full
 search selection independently of playback, source selection, mobile layout,
 live charts/exports, saved evidence reload, and atlas navigation.
-The final local checks passed 59 backend tests, three scientific motion-stack
+The final local checks passed 60 backend tests, three scientific motion-stack
 tests, and seven browser regression tests, with clean backend/frontend lint and a
 successful production build. A PDF parser verified its embedded evidence JSON.
 The live atlas check confirmed exact channel-100 tiles and no browser runtime
@@ -163,3 +163,12 @@ dichroic layers are omitted from the selector.
 Live browser verification loaded mosaic tiles at new coordinates, opened a saved
 field, displayed 43 Gaia markers, and completed candidate highlighting with 12
 provisional results. Browser checks recorded no runtime errors or mobile overflow.
+
+
+The bundled `reference_fields.json` contains actual SIA discovery snapshots for
+all five named targets, with original retrieval dates, archive URLs, and exposure
+times. It contains metadata. Real FITS images download from IRSA. Live checks from
+an empty temporary cache loaded 59 Barnard field epochs, 96 Epsilon Indi B epochs,
+45 WISE 0855 epochs, 56 RW Aurigae epochs, and 91 R Draconis epochs. Each first
+image returned a valid PNG. These are field-coverage checks and retain the earlier
+scientific source-identification limits.

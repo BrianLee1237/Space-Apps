@@ -289,3 +289,10 @@ When an uncached frontend coordinate search cannot reach discovery,
 `/api/observations` returns `fallback=atlas` with no dated observations. The
 frontend opens real HiPS imagery. The `/v1/search` contract continues to expose
 upstream errors for scientific callers.
+
+
+Bundled target discovery metadata in `src/spherex_api/reference_fields.json`
+provide real archive URLs for the five challenge fields when the local cache is
+empty. These snapshots retain their original SIA retrieval times. Matching
+snapshots are materialized into the ordinary manifest/cache format, preserving
+the existing frame, metadata, and image APIs. Native images download on demand.

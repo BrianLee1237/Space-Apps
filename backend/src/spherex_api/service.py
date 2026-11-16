@@ -1,8 +1,10 @@
 import io
+import json
 import threading
 import time
 from datetime import UTC, datetime
 from functools import lru_cache
+from pathlib import Path
 
 from filelock import FileLock
 
@@ -29,6 +31,16 @@ class SkyService:
         self._availability_lock = threading.Lock()
         self._availability = None
         self._availability_until = 0
+        self._reference_searches = json.loads(
+            Path(__file__).with_name("reference_fields.json").read_text(encoding="utf-8")
+        )["searches"]
+
+    def discovery_snapshots(self):
+        for pointer in (self.store.root / "queries").glob("*.json"):
+            manifest = self.store.cached_search(pointer.stem, allow_stale=True)
+            if manifest:
+                yield manifest
+        yield from self._reference_searches
 
     def availability(self):
         with self._availability_lock:
@@ -50,9 +62,8 @@ class SkyService:
     def saved_fields(self):
         fields = {}
         defaults = SearchRequest(ra=0, dec=0)
-        for pointer in (self.store.root / "queries").glob("*.json"):
+        for manifest in self.discovery_snapshots():
             try:
-                manifest = self.store.cached_search(pointer.stem, allow_stale=True)
                 if not manifest or not manifest["frames"] or not manifest["complete"]:
                     continue
                 query = SearchRequest.model_validate(manifest["query"])
@@ -64,20 +75,22 @@ class SkyService:
                     continue
                 key = (round(query.ra, 8), round(query.dec, 8))
                 if key not in fields:
-                    name = next(
+                    target = next(
                         (
-                            target["name"]
+                            target
                             for target in TARGETS
                             if round(target["ra"], 8) == key[0]
                             and round(target["dec"], 8) == key[1]
                         ),
-                        f"RA {query.ra:.5f}, Dec {query.dec:.5f}",
+                        None,
                     )
                     fields[key] = {
-                        "name": name,
+                        "name": target["name"]
+                        if target
+                        else f"RA {query.ra:.5f}, Dec {query.dec:.5f}",
                         "raDeg": query.ra,
                         "decDeg": query.dec,
-                        "fovArcmin": query.fov_arcmin,
+                        "fovArcmin": target["fov_arcmin"] if target else query.fov_arcmin,
                         "detectors": set(),
                     }
                 fields[key]["detectors"].update(frame["detector"] for frame in manifest["frames"])
@@ -103,9 +116,8 @@ class SkyService:
         if cached:
             return cached
         matches, compatible = [], []
-        for pointer in (self.store.root / "queries").glob("*.json"):
+        for manifest in self.discovery_snapshots():
             try:
-                manifest = self.store.cached_search(pointer.stem, allow_stale=True)
                 if not manifest:
                     continue
                 previous = SearchRequest.model_validate(manifest["query"])
@@ -126,7 +138,22 @@ class SkyService:
             except (KeyError, ValueError):
                 continue
         if matches:
-            return max(matches, key=lambda item: item["created_at_utc"])
+            source = max(matches, key=lambda item: item["created_at_utc"])
+            if not source.get("reference_snapshot"):
+                return source
+            return self.save_snapshot(
+                request,
+                key,
+                [dict(frame) for frame in source["frames"]],
+                not source["complete"],
+                source["archive_rows_returned"],
+                source["upstream_query_parameters"],
+                created_at=source["created_at_utc"],
+                extra_warnings=[
+                    f"Using bundled IRSA discovery metadata for {source['target_name']}, "
+                    f"retrieved {source['created_at_utc']}. Native images are downloaded from IRSA."
+                ],
+            )
         if not compatible:
             return None
         source = max(compatible, key=lambda item: item["created_at_utc"])

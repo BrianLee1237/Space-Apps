@@ -315,7 +315,8 @@ def test_unseen_sky_coordinates_open_atlas_when_discovery_is_down(tmp_path):
         assert result.json()["observations"] == []
         assert result.json()["discoveryAvailable"] is False
         status = client.get("/api/availability").json()
-        assert status["discoveryAvailable"] is False and status["savedFields"] == []
+        assert status["discoveryAvailable"] is False
+        assert len(status["savedFields"]) == 5
         # Scientific API callers still receive an explicit upstream error.
         assert client.get("/v1/search", params={"ra": 17, "dec": 6}).status_code == 502
 
@@ -334,11 +335,42 @@ def test_availability_exposes_saved_fields_and_recovers_after_a_probe(tmp_path):
     online = False
     status = service.availability()
     assert status["discoveryAvailable"] is False
-    assert len(status["savedFields"]) == 1
-    assert status["savedFields"][0]["raDeg"] == 133.7
-    assert status["savedFields"][0]["detectors"] == [6]
+    assert len(status["savedFields"]) == 6
+    field = next(field for field in status["savedFields"] if field["raDeg"] == 133.7)
+    assert field["detectors"] == [6]
     assert service.availability() == status and len(calls) == 2
     online = True
     service._availability_until = 0
     assert service.availability()["discoveryAvailable"] is True
     assert service._search_unavailable_until == 0
+
+
+def test_bundled_nasa_target_discovery_works_with_an_empty_cache(tmp_path):
+    from spherex_api.targets import TARGETS
+
+    def upstream(request):
+        if request.url.path == "/SIA":
+            return httpx.Response(502)
+        center = request.url.params["center"].removesuffix("d").split(",")
+        query = SearchRequest(ra=float(center[0]), dec=float(center[1]))
+        return httpx.Response(200, content=mef_bytes(query))
+
+    settings = Settings(data_dir=tmp_path, retries=0)
+    service = SkyService(settings, ArchiveClient(settings, httpx.MockTransport(upstream)))
+    with TestClient(create_app(settings, service=service)) as client:
+        for target in TARGETS:
+            response = client.get(
+                "/api/observations",
+                params={
+                    "ra": target["ra"],
+                    "dec": target["dec"],
+                    "fov": target["fov_arcmin"],
+                },
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data.get("fallback") is None
+            assert len(data["observations"]) >= 2
+            assert data["stale"] is True
+            assert any("bundled IRSA discovery" in warning for warning in data["warnings"])
+            assert client.get(data["observations"][0]["imageUrl"]).status_code == 200
